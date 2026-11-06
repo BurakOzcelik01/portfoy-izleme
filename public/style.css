@@ -1,15 +1,15 @@
 :root {
   color-scheme: light;
-  --bg: #f4f3ef;
-  --surface: #fcfcfb;
-  --surface-2: #efeee9;
-  --line: #e0dfd8;
-  --ink: #0b0b0b;
-  --ink-2: #52514e;
-  --ink-3: #6f6e69;
-  --accent: #1c5cab;
-  --accent-ink: #ffffff;
-  --good: #0a7a3a;
+  --bg: #daf1de;
+  --surface: #eef8ef;
+  --surface-2: #cfe6d4;
+  --line: #8eb69b;
+  --ink: #051f20;
+  --ink-2: #235347;
+  --ink-3: #235347;
+  --accent: #235347;
+  --accent-ink: #daf1de;
+  --good: #0a6b3c;
   --bad: #b3261e;
   --warn-bg: #fff3d6;
   --warn-ink: #6b4a00;
@@ -21,24 +21,24 @@
   --seg-6: #008300;
   --seg-7: #6250d6;
   --seg-8: #e34948;
-  --seg-free: #d3d2ca;
+  --seg-free: #8eb69b;
   --shadow: 0 8px 30px rgb(0 0 0 / 0.12);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --bg: #111110;
-    --surface: #1a1a19;
-    --surface-2: #262625;
-    --line: #33332f;
-    --ink: #f0efec;
-    --ink-2: #c3c2b7;
-    --ink-3: #9d9c92;
-    --accent: #5b9ded;
-    --accent-ink: #0b0b0b;
-    --good: #4cc27f;
-    --bad: #f0827c;
+    --bg: #051f20;
+    --surface: #0b2b26;
+    --surface-2: #163832;
+    --line: #235347;
+    --ink: #daf1de;
+    --ink-2: #8eb69b;
+    --ink-3: #8eb69b;
+    --accent: #8eb69b;
+    --accent-ink: #051f20;
+    --good: #7fe3a8;
+    --bad: #ff9d92;
     --warn-bg: #3a2d0c;
     --warn-ink: #f2d48a;
     --seg-1: #3987e5;
@@ -49,7 +49,7 @@
     --seg-6: #008300;
     --seg-7: #9085e9;
     --seg-8: #e66767;
-    --seg-free: #45453f;
+    --seg-free: #235347;
     --shadow: 0 8px 30px rgb(0 0 0 / 0.5);
   }
 }
@@ -191,6 +191,13 @@ dialog.menu {
 [data-sort-key] { user-select: none; }
 [data-sort-key]:active { cursor: grabbing; }
 .is-dragging { opacity: 0.4; }
+.panel-summary {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0 0 12px;
+  padding: 10px 12px; background: var(--surface-2); border-radius: 10px;
+}
+.panel-summary:empty { display: none; }
+.panel-summary dt { font-size: 12px; color: var(--ink-2); }
+.panel-summary dd { margin: 2px 0 0; font-weight: 650; font-variant-numeric: tabular-nums; }
 .pct { display: block; font-size: 13px; }
 .field-check { display: flex; align-items: center; gap: 8px; }
 .field.field-check input { display: inline; width: auto; margin: 0; }

@@ -405,8 +405,54 @@ $('restore-confirm').addEventListener('click', async () => {
   }
 });
 
+/** Bölümün üstündeki değer, günlük ve toplam kâr/zarar özeti. Tutar yoksa "—" görünür. */
+function renderSummary(id, { value, dailyLabel, dailyAmount, dailyBase, totalAmount, totalCost }) {
+  const stat = (label, amount, base) => {
+    const known = amount !== null && base > 0;
+    return h('div', {},
+      h('dt', {}, label),
+      h('dd', { class: changeClass(known ? amount : 0) },
+        known ? [percent((amount / base) * 100), h('span', { class: 'pct' }, signedMoney(amount))] : '—'));
+  };
+  $(id).replaceChildren(
+    h('div', {}, h('dt', {}, 'Değer'), h('dd', {}, money(value))),
+    stat(dailyLabel, dailyAmount, dailyBase),
+    stat('Toplam kâr/zarar', totalAmount, totalCost),
+  );
+}
+
+function holdingsSummary(rows, id) {
+  const priced = rows.filter((r) => r.valueTry !== null);
+  if (!quotesLoadedAt || priced.length === 0) {
+    $(id).replaceChildren();
+    return;
+  }
+  // Tutarlar TL'dir; ABD hisselerinde güncel kurla çevrilir.
+  const rateOf = (r) => (r.value > 0 ? r.valueTry / r.value : 1);
+  const moving = priced.filter((r) => r.quote?.changePercent != null);
+  const dailyBase = moving.reduce((sum, r) => sum + r.valueTry / (1 + r.quote.changePercent / 100), 0);
+  const dailyAmount = moving.reduce((sum, r) => sum + r.valueTry, 0) - dailyBase;
+  const withCost = priced.filter((r) => r.pnl !== null);
+
+  // Seans bugün değilse rakam bugünün kârı gibi gösterilmez, hangi seansa ait olduğu yazılır.
+  const timeZone = rows[0].market === 'US' ? 'America/New_York' : 'Europe/Istanbul';
+  const latest = Math.max(0, ...moving.map((r) => r.quote.marketTime ?? 0));
+  const session = latest ? new Intl.DateTimeFormat('en-CA', { timeZone }).format(latest) : null;
+  const dailyLabel = session === null || session === data.view.today ? 'Bugün' : `Son seans (${longDate(session)})`;
+
+  renderSummary(id, {
+    value: priced.reduce((sum, r) => sum + r.valueTry, 0),
+    dailyLabel,
+    dailyAmount: moving.length ? dailyAmount : null,
+    dailyBase,
+    totalAmount: withCost.length ? withCost.reduce((sum, r) => sum + r.pnl * rateOf(r), 0) : null,
+    totalCost: withCost.reduce((sum, r) => sum + r.cost * rateOf(r), 0),
+  });
+}
+
 function renderHoldings(rows, { boxId, statusId, format, editorKind }) {
   const box = $(boxId);
+  holdingsSummary(rows, `${boxId}-summary`);
   if (rows.length === 0) {
     box.replaceChildren(h('p', { class: 'empty' }, 'Henüz hisse yok. Aracı kurum ekran görüntüsünü aşağıdan yükleyebilirsin.'));
     $(statusId).textContent = '';
@@ -450,7 +496,7 @@ function renderHoldings(rows, { boxId, statusId, format, editorKind }) {
   const times = rows.map((r) => r.quote?.marketTime).filter(Boolean);
   const latest = times.length ? Math.max(...times) : null;
   const rate = format === dollars && usdTry !== null
-    ? ` Toplam ${money(total * usdTry)} (1 $ = ${money(usdTry)}). Günlük sütunu son seansı gösterir; net varlıktaki "Bugün" rakamına seans bugün açılınca girer.`
+    ? ` Üstteki TL tutarlar güncel kurla çevrilir (1 $ = ${money(usdTry)}). Günlük rakamlar son seansı gösterir; net varlıktaki "Bugün" rakamına seans bugün açılınca girer.`
     : '';
   $(statusId).textContent = quotesLoadedAt
     ? `Fiyatlar 30 saniyede bir yenilenir.${latest ? ` Son işlem saati: ${clock(latest)}.` : ''}${rate} Kaynak: Yahoo Finance, gecikmeli olabilir.`
@@ -479,12 +525,20 @@ function renderFunds() {
   const moving = funds.filter(hasDaily);
   const dailyTotal = moving.reduce((sum, f) => sum + f.units * (f.price - f.prevPrice), 0);
   const dailyBase = moving.reduce((sum, f) => sum + f.units * f.prevPrice, 0);
-  const parts = [`Toplam ${money(data.view.fundsTotal)}.`];
-  if (dailyBase > 0) parts.push(`Bugün ${percent((dailyTotal / dailyBase) * 100)} (${signedMoney(dailyTotal)}).`);
-  if (totalCost > 0) {
-    const scope = known.length < funds.length ? ', maliyeti bilinen fonlarda' : '';
-    parts.push(`Toplam kâr/zarar ${percent((totalPnl / totalCost) * 100)} (${signedMoney(totalPnl)}${scope}).`);
+  if (funds.length) {
+    renderSummary('funds-summary', {
+      value: data.view.fundsTotal,
+      dailyLabel: 'Bugün',
+      dailyAmount: moving.length ? dailyTotal : null,
+      dailyBase,
+      totalAmount: known.length ? totalPnl : null,
+      totalCost,
+    });
+  } else {
+    $('funds-summary').replaceChildren();
   }
+  const parts = [];
+  if (known.length < funds.length && totalCost > 0) parts.push('Toplam kâr/zarar maliyeti bilinen fonları kapsar.');
   parts.push(fundRefreshError
     ? `TEFAS'tan fiyat alınamadı, son bilinen değerler gösteriliyor (${fundRefreshError}).`
     : 'Değerler TEFAS fiyatıyla günde bir kez güncellenir.');
