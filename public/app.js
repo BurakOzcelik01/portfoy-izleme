@@ -262,15 +262,15 @@ function renderCards() {
       h('span', { class: 'num' }, money(card.debt))))) : [emptyRow('Henüz kart yok.')]));
 }
 
-function renderScholarships() {
-  const { scholarships } = data.view;
-  $('scholarships').replaceChildren(...(scholarships.length ? scholarships.map((s) =>
-    h('li', {}, h('button', { type: 'button', class: 'row', onclick: () => openEditor('scholarship', s) },
+function renderIncomes() {
+  const { incomes } = data.view;
+  $('incomes').replaceChildren(...(incomes.length ? incomes.map((s) =>
+    h('li', {}, h('button', { type: 'button', class: 'row', onclick: () => openEditor('income', s) },
       h('span', {},
         h('span', { class: 'row-title' }, s.name),
         h('span', { class: 'row-sub' }, `Her ayın ${dayLabel(s.day)} → ${s.accountName}`),
         h('span', { class: 'row-sub' }, `Sonraki yatış: ${longDate(s.nextDate)} (${s.daysToNext} gün)`)),
-      h('span', { class: 'num' }, money(s.amount))))) : [emptyRow('Henüz burs yok.')]));
+      h('span', { class: 'num' }, money(s.amount))))) : [emptyRow('Henüz gelir yok.')]));
 }
 
 function renderNotes() {
@@ -286,7 +286,7 @@ function renderActivity() {
   $('activity').replaceChildren(...(items.length ? items.map((item) =>
     h('li', {}, h('div', { class: 'row' },
       h('span', {}, item.text, h('span', { class: 'row-sub' }, longDate(item.date))),
-      item.amount != null ? h('span', { class: `num ${changeClass(item.amount)}` }, signedMoney(item.amount)) : null))) : [emptyRow('Burs yatışları ve asistan güncellemeleri burada görünür.')]));
+      item.amount != null ? h('span', { class: `num ${changeClass(item.amount)}` }, signedMoney(item.amount)) : null))) : [emptyRow('Gelir yatışları ve asistan güncellemeleri burada görünür.')]));
 }
 
 function render() {
@@ -300,7 +300,7 @@ function render() {
   renderMoneyMarket();
   renderAccounts();
   renderCards();
-  renderScholarships();
+  renderIncomes();
   renderNotes();
   renderActivity();
 }
@@ -389,17 +389,17 @@ const EDITORS = {
     save: (v) => ({ type: 'set_card', name: v.name, amount: v.debt, statementDay: v.statementDay, dueDay: v.dueDay }),
     remove: (v) => ({ type: 'remove_card', name: v.name }),
   },
-  scholarship: {
-    title: 'Burs',
+  income: {
+    title: 'Gelir',
     key: 'name',
     fields: () => [
-      { name: 'name', label: 'Burs adı', type: 'text', required: true, keyField: true },
+      { name: 'name', label: 'Gelir adı', type: 'text', required: true, keyField: true, hint: 'Örneğin: Maaş, Burs, Kira' },
       { name: 'amount', label: 'Aylık tutar (TL)', type: 'number', required: true },
       { name: 'day', label: 'Yatış günü (ayın kaçı)', type: 'day', required: true, hint: 'O gün gelince tutar hesaba kendiliğinden eklenir' },
       { name: 'accountName', label: 'Yatacağı hesap', type: 'select', required: true, options: data.state.accounts.map((a) => [a.name, a.name]) },
     ],
-    save: (v) => ({ type: 'set_scholarship', name: v.name, amount: v.amount, day: v.day, accountName: v.accountName }),
-    remove: (v) => ({ type: 'remove_scholarship', name: v.name }),
+    save: (v) => ({ type: 'set_income', name: v.name, amount: v.amount, day: v.day, accountName: v.accountName }),
+    remove: (v) => ({ type: 'remove_income', name: v.name }),
   },
   bucket: {
     title: 'Para piyasasından ayır',
@@ -446,18 +446,24 @@ function fieldInput(field, value) {
   return h('input', attrs);
 }
 
+let deleteArmed = false;
+
+function disarmDelete() {
+  deleteArmed = false;
+  $('editor-delete').textContent = 'Sil';
+}
+
 function openEditor(kind, record = null) {
   const config = EDITORS[kind];
   const values = record ?? config.defaults?.() ?? {};
   const fields = config.fields();
-  if (kind === 'scholarship' && fields[3].options.length === 0) {
-    window.alert('Burs eklemeden önce yatacağı banka hesabını ekle.');
-    return;
-  }
   editing = { kind, config, record };
   $('editor-title').textContent = record ? `${config.title}: ${record[config.key]}` : config.title;
-  $('editor-error').hidden = true;
+  const needsAccount = kind === 'income' && fields[3].options.length === 0;
+  $('editor-error').textContent = needsAccount ? 'Gelir eklemeden önce yatacağı banka hesabını ekle.' : '';
+  $('editor-error').hidden = !needsAccount;
   $('editor-delete').hidden = !(record && config.remove);
+  disarmDelete();
   $('editor-fields').replaceChildren(...fields.map((field) => {
     const input = fieldInput(field, values[field.name]);
     // Kayıtlar adla eşleşir; düzenlerken ad değişirse yeni kayıt oluşurdu.
@@ -495,8 +501,15 @@ $('editor-form').addEventListener('submit', (event) => {
   runEditor(editing.config.save(readEditor()));
 });
 $('editor-cancel').addEventListener('click', () => $('editor').close());
+// Onay pencerenin içinde istenir: window.confirm her tarayıcıda açılmaz, açılmayınca da silme sessizce iptal olur.
 $('editor-delete').addEventListener('click', () => {
-  if (window.confirm('Silinsin mi?')) runEditor(editing.config.remove(editing.record));
+  if (deleteArmed) {
+    runEditor(editing.config.remove(editing.record));
+    disarmDelete();
+  } else {
+    deleteArmed = true;
+    $('editor-delete').textContent = 'Eminim, sil';
+  }
 });
 document.querySelectorAll('[data-add]').forEach((button) => {
   button.addEventListener('click', () => openEditor(button.dataset.add));
@@ -678,7 +691,7 @@ loadQuotes().catch(() => { quotesLoadedAt = Date.now(); render(); });
 setInterval(() => {
   if (!document.hidden) loadQuotes().catch(() => {});
 }, QUOTE_REFRESH_MS);
-// Burslar sunucuda işlenir; açık kalan sayfa da gün dönümünü yakalar.
+// Gelirler sunucuda işlenir; açık kalan sayfa da gün dönümünü yakalar.
 setInterval(() => loadState().catch(() => {}), STATE_REFRESH_MS);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {

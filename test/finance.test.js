@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  applyDueScholarships,
+  applyDueIncomes,
   applyFundPrices,
   applyOperations,
   deriveView,
@@ -11,42 +11,42 @@ import {
   todayInIstanbul,
 } from '../lib/finance.js';
 
-function withScholarship(today) {
+function withIncome(today) {
   return applyOperations(
     emptyState(),
     [
       { type: 'set_account', name: 'Banka A', amount: 1000 },
-      { type: 'set_scholarship', name: 'Burs A', amount: 7500, day: 1, accountName: 'Banka A' },
+      { type: 'set_income', name: 'Gelir A', amount: 7500, day: 1, accountName: 'Banka A' },
     ],
     today,
   );
 }
 
-test('burs ilk yatış tarihi bugünden sonraki ilk gün olur', () => {
-  assert.equal(withScholarship('2026-11-06').scholarships[0].nextDate, '2026-12-01');
-  assert.equal(withScholarship('2026-11-01').scholarships[0].nextDate, '2026-12-01');
-  assert.equal(withScholarship('2026-10-31').scholarships[0].nextDate, '2026-11-01');
+test('gelir ilk yatış tarihi bugünden sonraki ilk gün olur', () => {
+  assert.equal(withIncome('2026-11-06').incomes[0].nextDate, '2026-12-01');
+  assert.equal(withIncome('2026-11-01').incomes[0].nextDate, '2026-12-01');
+  assert.equal(withIncome('2026-10-31').incomes[0].nextDate, '2026-11-01');
 });
 
-test('burs tarihinden önce bakiye değişmez', () => {
-  const state = withScholarship('2026-11-06');
-  assert.deepEqual(applyDueScholarships(state, '2026-11-30'), []);
+test('gelir tarihinden önce bakiye değişmez', () => {
+  const state = withIncome('2026-11-06');
+  assert.deepEqual(applyDueIncomes(state, '2026-11-30'), []);
   assert.equal(state.accounts[0].balance, 1000);
 });
 
-test('burs ayın 1inde hesaba eklenir ve aynı gün tekrar eklenmez', () => {
-  const state = withScholarship('2026-11-06');
-  assert.equal(applyDueScholarships(state, '2026-12-01').length, 1);
+test('gelir ayın 1inde hesaba eklenir ve aynı gün tekrar eklenmez', () => {
+  const state = withIncome('2026-11-06');
+  assert.equal(applyDueIncomes(state, '2026-12-01').length, 1);
   assert.equal(state.accounts[0].balance, 8500);
-  assert.equal(state.scholarships[0].nextDate, '2027-01-01');
-  assert.equal(applyDueScholarships(state, '2026-12-01').length, 0);
+  assert.equal(state.incomes[0].nextDate, '2027-01-01');
+  assert.equal(applyDueIncomes(state, '2026-12-01').length, 0);
   assert.equal(state.accounts[0].balance, 8500);
   assert.equal(state.activity.length, 1);
 });
 
-test('uygulama aylarca kapalı kalsa da kaçan bursların hepsi eklenir', () => {
-  const state = withScholarship('2026-11-06');
-  assert.equal(applyDueScholarships(state, '2027-02-15').length, 3);
+test('uygulama aylarca kapalı kalsa da kaçan gelirlerin hepsi eklenir', () => {
+  const state = withIncome('2026-11-06');
+  assert.equal(applyDueIncomes(state, '2027-02-15').length, 3);
   assert.equal(state.accounts[0].balance, 1000 + 3 * 7500);
   assert.deepEqual(state.activity.map((a) => a.date), ['2027-02-01', '2027-01-01', '2026-12-01']);
 });
@@ -294,7 +294,7 @@ test('bir işlem hatalıysa önceki işlemler de uygulanmaz', () => {
       state,
       [
         { type: 'set_account', name: 'Banka A', amount: 100 },
-        { type: 'set_scholarship', name: 'X', amount: 10, day: 40, accountName: 'Banka A' },
+        { type: 'set_income', name: 'X', amount: 10, day: 40, accountName: 'Banka A' },
       ],
       '2026-11-06',
     ),

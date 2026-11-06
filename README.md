@@ -1,6 +1,6 @@
 # Portföy izleme (taslak)
 
-Hisseler, fonlar, banka hesapları, kredi kartları, burslar ve para piyasası tek ekranda.
+Hisseler, fonlar, banka hesapları, kredi kartları, gelirler ve para piyasası tek ekranda.
 Veriler bu klasördeki `data.json` dosyasında durur; bu dosya ve `.env` depoya girmez.
 İlk açılışta uydurma örnek veriyle başlar.
 
@@ -29,8 +29,8 @@ Yüklediğin fotoğraflar ve mevcut kayıtların, yanıt üretilmesi için Anthr
 
 ## Nasıl çalışır
 
-- **Burslar:** Sunucu her veri okumasında vadesi gelen bursları hesaba ekler. Uygulama kapalıyken
-  gelen tarihler, açıldığında tek tek işlenir ve aynı burs iki kez yatmaz. Ayın 31'i gibi günler
+- **Gelirler:** Sunucu her veri okumasında vadesi gelen gelirleri hesaba ekler. Uygulama kapalıyken
+  gelen tarihler, açıldığında tek tek işlenir ve aynı gelir iki kez yatmaz. Ayın 31'i gibi günler
   kısa aylarda ayın son gününe çekilir.
 - **Fiyatlar:** BIST ve ABD hisseleri ile dolar kuru 30 saniyede bir Yahoo Finance'ten alınır ve
   gecikmeli olabilir. Yahoo'ya yalnızca hisse kodları gider.

@@ -4,9 +4,10 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  applyDueScholarships, applyFundPrices, applyOperations, deriveView, emptyState, sampleState, todayInIstanbul,
+  applyDueIncomes, applyFundPrices, applyOperations, deriveView, emptyState, normalizeMarket, normalizeSymbol,
+  sampleState, todayInIstanbul,
 } from './lib/finance.js';
-import { getQuotes } from './lib/quotes.js';
+import { getQuotes, symbolExists } from './lib/quotes.js';
 import { fetchFundPrices } from './lib/funds.js';
 import { loadState, saveState } from './lib/store.js';
 import { askAssistant, describeOperation } from './lib/assistant.js';
@@ -22,11 +23,12 @@ const STATIC_FILES = {
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
 };
 
-// Eski veri dosyalarında fon listesi ve hisselerin piyasa bilgisi yoktur.
-const loaded = loadState(DATA_FILE, () => sampleState(todayInIstanbul()));
+// Eski veri dosyalarında fon listesi ve hisselerin piyasa bilgisi yoktur; gelirler de "scholarships" adıyla durur.
+const { scholarships, ...loaded } = loadState(DATA_FILE, () => sampleState(todayInIstanbul()));
 let state = {
   ...emptyState(),
   ...loaded,
+  incomes: loaded.incomes ?? scholarships ?? [],
   holdings: loaded.holdings.map((h) => ({ market: 'BIST', ...h })),
   // Para piyasası toplamı artık fonlardan hesaplanıyor; eski dosyadaki elle girilmiş toplam atılır.
   moneyMarket: { buckets: loaded.moneyMarket.buckets },
@@ -57,10 +59,10 @@ function persist() {
   saveState(DATA_FILE, state);
 }
 
-/** Vadesi gelen bursları işler; her okumada çalıştığı için ayrı bir zamanlayıcı gerekmez. */
+/** Vadesi gelen gelirleri işler; her okumada çalıştığı için ayrı bir zamanlayıcı gerekmez. */
 function currentView() {
   const today = todayInIstanbul();
-  if (applyDueScholarships(state, today).length > 0) persist();
+  if (applyDueIncomes(state, today).length > 0) persist();
   return { state, view: deriveView(state, today) };
 }
 
@@ -70,6 +72,30 @@ function sendJson(res, status, body) {
 }
 
 class BadRequest extends Error {}
+
+/** Portföye yeni giren hisse kodunun gerçekten var olduğunu doğrular; var olan kayıtlar sorulmaz. */
+async function checkNewHoldings(operations) {
+  for (const op of operations) {
+    if (op.type !== 'set_holding' || op.quantity === 0) continue;
+    let market;
+    let symbol;
+    try {
+      market = normalizeMarket(op.market);
+      symbol = normalizeSymbol(op.symbol, market);
+    } catch (error) {
+      throw new BadRequest(error.message);
+    }
+    if (state.holdings.some((h) => h.symbol === symbol && h.market === market)) continue;
+    const place = market === 'US' ? "ABD'de" : "Borsa İstanbul'da";
+    let exists;
+    try {
+      exists = await symbolExists(symbol, market);
+    } catch {
+      throw new BadRequest(`${symbol} kodu şu an doğrulanamadı, hisse eklenmedi. Biraz sonra tekrar dene.`);
+    }
+    if (!exists) throw new BadRequest(`${place} ${symbol} kodlu bir hisse bulunamadı, eklenmedi. Kodu kontrol et.`);
+  }
+}
 
 async function readJson(req) {
   if (!(req.headers['content-type'] ?? '').startsWith('application/json')) throw new BadRequest('JSON bekleniyor');
@@ -102,6 +128,7 @@ async function handleApi(req, res, pathname) {
     case 'POST /api/operations': {
       const { operations, source } = await readJson(req);
       if (!Array.isArray(operations) || operations.length === 0) throw new BadRequest('İşlem listesi boş');
+      await checkNewHoldings(operations);
       const today = todayInIstanbul();
       let next;
       try {
