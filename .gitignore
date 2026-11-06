@@ -1,0 +1,7 @@
+# Kişisel finansal veriler ve API anahtarı asla depoya girmez
+data.json
+data.json.tmp
+.env
+
+node_modules/
+.claude/

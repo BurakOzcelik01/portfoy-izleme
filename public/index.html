@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Portföyüm</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="sample-banner" class="banner" hidden>
+    <span>İlk açılışta gelen kayıtlar örnek veridir. Üzerlerine tıklayıp kendi tutarlarını gir.</span>
+    <button type="button" id="dismiss-sample" class="link">Girdim, bu uyarıyı kapat</button>
+  </div>
+
+  <main>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Net varlık</p>
+        <p class="hero-number" id="net-worth">—</p>
+        <p class="muted" id="net-note"></p>
+      </div>
+      <dl class="hero-parts" id="hero-parts"></dl>
+    </header>
+
+    <div class="grid">
+      <section class="panel span-7" aria-labelledby="h-portfolio">
+        <div class="panel-head">
+          <h2 id="h-portfolio">BIST hisseleri</h2>
+          <button type="button" class="ghost" data-add="holding">+ Hisse ekle</button>
+        </div>
+        <div id="holdings"></div>
+        <p class="muted small" id="quote-status"></p>
+      </section>
+
+      <section class="panel span-5" aria-labelledby="h-mm">
+        <div class="panel-head">
+          <h2 id="h-mm">Para piyasası</h2>
+          <button type="button" class="ghost" data-add="bucket">+ Ayır</button>
+        </div>
+        <div id="money-market"></div>
+      </section>
+
+      <section class="panel span-7" aria-labelledby="h-us">
+        <div class="panel-head">
+          <h2 id="h-us">ABD hisseleri</h2>
+          <button type="button" class="ghost" data-add="usHolding">+ Hisse ekle</button>
+        </div>
+        <div id="us-holdings"></div>
+        <p class="muted small" id="us-status"></p>
+      </section>
+
+      <section class="panel span-5" aria-labelledby="h-funds">
+        <div class="panel-head">
+          <h2 id="h-funds">Yatırım fonları</h2>
+          <button type="button" class="ghost" data-add="fund">+ Fon ekle</button>
+        </div>
+        <ul class="rows" id="funds"></ul>
+        <p class="muted small" id="funds-status"></p>
+      </section>
+
+      <section class="panel span-4" aria-labelledby="h-accounts">
+        <div class="panel-head">
+          <h2 id="h-accounts">Banka hesapları</h2>
+          <button type="button" class="ghost" data-add="account">+ Hesap</button>
+        </div>
+        <ul class="rows" id="accounts"></ul>
+      </section>
+
+      <section class="panel span-4" aria-labelledby="h-cards">
+        <div class="panel-head">
+          <h2 id="h-cards">Kredi kartları</h2>
+          <button type="button" class="ghost" data-add="card">+ Kart</button>
+        </div>
+        <ul class="rows" id="cards"></ul>
+      </section>
+
+      <section class="panel span-4" aria-labelledby="h-scholarships">
+        <div class="panel-head">
+          <h2 id="h-scholarships">Burslar</h2>
+          <button type="button" class="ghost" data-add="scholarship">+ Burs</button>
+        </div>
+        <ul class="rows" id="scholarships"></ul>
+      </section>
+
+      <section class="panel span-6" aria-labelledby="h-notes">
+        <div class="panel-head">
+          <h2 id="h-notes">Notlar</h2>
+          <button type="button" class="ghost" data-add="note">+ Not</button>
+        </div>
+        <ul class="rows" id="notes"></ul>
+      </section>
+
+      <section class="panel span-6" aria-labelledby="h-activity">
+        <div class="panel-head"><h2 id="h-activity">Hareketler</h2></div>
+        <ul class="rows" id="activity"></ul>
+      </section>
+    </div>
+  </main>
+
+  <div class="dock">
+    <div class="thread" id="thread" hidden>
+      <button type="button" class="ghost thread-close" id="thread-close" aria-label="Sohbeti gizle">Gizle</button>
+      <div id="messages" aria-live="polite"></div>
+    </div>
+    <form class="composer" id="composer">
+      <div class="attachments" id="attachments" hidden></div>
+      <div class="composer-row">
+        <label class="attach" title="Fotoğraf ekle">
+          <input type="file" id="file-input" accept="image/*" multiple>
+          <span aria-hidden="true">＋</span>
+          <span class="sr-only">Fotoğraf ekle</span>
+        </label>
+        <textarea id="prompt" rows="1" placeholder="Fotoğraf yükle ya da yaz…" aria-label="Asistana mesaj"></textarea>
+        <button type="submit" class="send" id="send">Gönder</button>
+      </div>
+    </form>
+  </div>
+
+  <dialog id="editor">
+    <form id="editor-form" method="dialog">
+      <h3 id="editor-title"></h3>
+      <div id="editor-fields"></div>
+      <p class="form-error" id="editor-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="danger" id="editor-delete" hidden>Sil</button>
+        <span class="spacer"></span>
+        <button type="button" class="ghost" id="editor-cancel">Vazgeç</button>
+        <button type="submit" class="send">Kaydet</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
