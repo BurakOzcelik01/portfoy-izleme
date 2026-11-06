@@ -33,6 +33,9 @@ Sol üstteki menüden açılır: ana ekran, alım/satım, portföy geçmişi, ay
 
 ## Nasıl çalışır
 
+- **Sıralama:** Hisse, fon, altın, hesap, kart, gelir, gider ve ayırma satırları sürüklenerek sıralanır.
+- **Günlük değişim:** Hisse, fon ve altının son işlem günündeki değişimidir; yüzde bu yatırımların
+  toplamına göre hesaplanır, banka bakiyesi ve kart borcu dahil edilmez.
 - **Yedekleme:** Bütün kayıtlar tek bir JSON dosyası olarak iner ve geri yüklenebilir. Geri yüklemeden
   önce mevcut kayıtlar `data.before-restore.json` olarak saklanır. Dosyada finansal bilgiler vardır.
 - **Portföy geçmişi:** Uygulama açıkken her gün için son net varlık kaydedilir. Fiyatı alınamayan bir

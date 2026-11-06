@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyDueExpenses,
+  applyFundPrices,
   applyOperations,
   computeTotals,
   deriveView,
@@ -210,6 +211,104 @@ test('geçmiş günde tek kayıt tutar, eksik fiyatlı toplamı yazmaz', () => {
   assert.equal(state.history[0].net, 20);
   recordSnapshot(state, '2026-11-07', priced(30));
   assert.deepEqual(state.history.map((h) => h.net), [20, 30]);
+});
+
+test('günlük kâr/zarar hisse, ABD hissesi, fon ve altını kapsar; yüzde yatırımlara göredir', () => {
+  const state = portfolio(
+    { type: 'set_account', name: 'Banka A', amount: 100000 },
+    { type: 'set_holding', symbol: 'THYAO', quantity: 11 },
+    { type: 'set_holding', symbol: 'VOO', market: 'US', quantity: 1 },
+    { type: 'set_gold', kind: 'ons', quantity: 1, price: 1000 },
+    { type: 'set_fund', name: 'IOO', amount: 1000 },
+  );
+  applyFundPrices(state, new Map([['IOO', [{ date: D, price: 11 }, { date: '2026-11-05', price: 10 }]]]));
+  // THYAO 110 TL: dün 100, +10. VOO 21 $ × 10 TL = 210: dün 200, +10. Altın 110 $ × 10 = 1100: dün 1000, +100.
+  const totals = computeTotals(state, {
+    quotes: [
+      { symbol: 'THYAO', market: 'BIST', price: 10, changePercent: 10 },
+      { symbol: 'VOO', market: 'US', price: 21, changePercent: 5 },
+    ],
+    usdTry: 10,
+    goldOunceUsd: 110,
+    goldChangePercent: 10,
+  });
+  const fundGain = state.funds[0].units * 1;
+  assert.equal(totals.dailyChange, Math.round((10 + 10 + 100 + fundGain) * 100) / 100);
+  const previous = 110 + 210 + 1100 + state.funds[0].value - totals.dailyChange;
+  // dailyChange kuruşa yuvarlıdır, yüzde yuvarlanmamış tutardan hesaplanır.
+  assert.ok(Math.abs(totals.dailyPercent - (totals.dailyChange / previous) * 100) < 1e-3);
+});
+
+test('değişim verisi yoksa günlük kâr/zarar sıfırdır, yatırım yoksa yüzde verilmez', () => {
+  const state = portfolio({ type: 'set_holding', symbol: 'THYAO', quantity: 1 }, { type: 'set_fund', name: 'IOO', amount: 100 });
+  const totals = computeTotals(state, { quotes: [{ symbol: 'THYAO', market: 'BIST', price: 10 }], usdTry: 1, goldOunceUsd: null });
+  assert.equal(totals.dailyChange, 0);
+  assert.equal(totals.dailyPercent, 0);
+  assert.equal(computeTotals(portfolio({ type: 'set_account', name: 'Banka A', amount: 5 }), noPrices).dailyPercent, null);
+});
+
+test('fonun bugünkü değeri işlenmiş olsa da önceki fiyat sonradan tamamlanır', () => {
+  const state = portfolio({ type: 'set_fund', name: 'IOO', amount: 100 });
+  applyFundPrices(state, new Map([['IOO', [{ date: D, price: 10 }]]]));
+  assert.equal(state.funds[0].prevPrice, undefined);
+  const value = state.funds[0].value;
+  assert.equal(applyFundPrices(state, new Map([['IOO', [{ date: D, price: 10 }, { date: '2026-11-05', price: 9 }]]])), true);
+  assert.equal(state.funds[0].prevPrice, 9);
+  assert.equal(state.funds[0].value, value);
+});
+
+test('sıralama yalnızca sürüklenen listeyi değiştirir, hisselerde diğer piyasaya dokunmaz', () => {
+  let state = portfolio(
+    { type: 'set_holding', symbol: 'THYAO', quantity: 1 },
+    { type: 'set_holding', symbol: 'VOO', market: 'US', quantity: 1 },
+    { type: 'set_holding', symbol: 'ASELS', quantity: 1 },
+    { type: 'set_holding', symbol: 'BIMAS', quantity: 1 },
+    { type: 'set_holding', symbol: 'AMZN', market: 'US', quantity: 1 },
+  );
+  state = applyOperations(state, [{ type: 'reorder', list: 'holdings:BIST', keys: ['BIMAS', 'THYAO', 'ASELS'] }], D);
+  const symbols = (market) => state.holdings.filter((h) => h.market === market).map((h) => h.symbol);
+  assert.deepEqual(symbols('BIST'), ['BIMAS', 'THYAO', 'ASELS']);
+  assert.deepEqual(symbols('US'), ['VOO', 'AMZN']);
+  state = applyOperations(state, [{ type: 'reorder', list: 'holdings:US', keys: ['AMZN', 'VOO'] }], D);
+  assert.deepEqual(symbols('US'), ['AMZN', 'VOO']);
+  assert.deepEqual(symbols('BIST'), ['BIMAS', 'THYAO', 'ASELS']);
+});
+
+test('fon, hesap, kart, gelir, gider, altın ve ayırma sıralanır', () => {
+  let state = portfolio(
+    { type: 'set_account', name: 'A', amount: 1 },
+    { type: 'set_account', name: 'B', amount: 1 },
+    { type: 'set_card', name: 'A', amount: 1, statementDay: 1, dueDay: 2 },
+    { type: 'set_card', name: 'B', amount: 1, statementDay: 1, dueDay: 2 },
+    { type: 'set_income', name: 'A', amount: 1, day: 1, accountName: 'A' },
+    { type: 'set_income', name: 'B', amount: 1, day: 1, accountName: 'A' },
+    { type: 'set_expense', name: 'A', amount: 1, day: 1, accountName: 'A' },
+    { type: 'set_expense', name: 'B', amount: 1, day: 1, accountName: 'A' },
+    { type: 'set_gold', kind: 'gram', quantity: 1, price: 1 },
+    { type: 'set_gold', kind: 'ons', quantity: 1, price: 1 },
+    { type: 'set_fund', name: 'AA', amount: 100, moneyMarket: true },
+    { type: 'set_fund', name: 'BB', amount: 1 },
+    { type: 'set_bucket', name: 'A', amount: 1 },
+    { type: 'set_bucket', name: 'B', amount: 1 },
+  );
+  const lists = { accounts: state.accounts, cards: state.cards, incomes: state.incomes, expenses: state.expenses, gold: state.gold, funds: state.funds, buckets: state.moneyMarket.buckets };
+  for (const [list, records] of Object.entries(lists)) {
+    const reversed = [...records].reverse().map((r) => r.id);
+    state = applyOperations(state, [{ type: 'reorder', list, keys: reversed }], D);
+    const after = list === 'buckets' ? state.moneyMarket.buckets : state[list];
+    assert.deepEqual(after.map((r) => r.id), reversed, list);
+  }
+});
+
+test('uyuşmayan sıralama reddedilir ve liste değişmez', () => {
+  const state = portfolio({ type: 'set_account', name: 'A', amount: 1 }, { type: 'set_account', name: 'B', amount: 1 });
+  const [a, b] = state.accounts.map((r) => r.id);
+  for (const keys of [[a], [a, a], [a, 'yok'], [a, b, 'fazla'], 'x']) {
+    assert.throws(() => applyOperations(state, [{ type: 'reorder', list: 'accounts', keys }], D), /uyuşmuyor/);
+  }
+  assert.throws(() => applyOperations(state, [{ type: 'reorder', list: 'activity', keys: [] }], D), /Bilinmeyen liste/);
+  assert.throws(() => applyOperations(state, [{ type: 'reorder', list: '__proto__', keys: [] }], D), /Bilinmeyen liste/);
+  assert.deepEqual(state.accounts.map((r) => r.id), [a, b]);
 });
 
 test('eski veri dosyası yeni biçime taşınır, bozuk dosya reddedilir', () => {

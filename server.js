@@ -33,7 +33,7 @@ let fundRefreshError = null;
 /** Yeni fon fiyatı varsa işler. Fiyat günde bir kez değiştiği için en fazla 30 dakikada bir sorar. */
 async function refreshFundsIfDue() {
   const today = todayInIstanbul();
-  const due = state.funds.some((f) => f.units == null || f.priceDate !== today);
+  const due = state.funds.some((f) => f.units == null || f.prevPrice == null || f.priceDate !== today);
   if (!due || Date.now() - lastFundRefresh < FUND_REFRESH_MS) return;
   lastFundRefresh = Date.now();
   try {
@@ -120,7 +120,7 @@ async function handleApi(req, res, pathname) {
 
     case 'GET /api/quotes': {
       await refreshFundsIfDue();
-      const market = await getQuotes(state.holdings, state.gold.length > 0);
+      const market = await getQuotes(state.holdings);
       const current = currentView();
       const totals = computeTotals(state, market);
       if (recordSnapshot(state, todayInIstanbul(), totals)) persist();

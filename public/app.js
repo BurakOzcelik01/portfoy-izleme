@@ -7,7 +7,10 @@ let data = null; // { state, view }
 let quotes = new Map();
 let usdTry = null;
 let goldOunceUsd = null;
+let goldChangePercent = null;
 let totals = null;
+let activeDrag = null; // sürüklenen satır; bu sırada ekran yenilenmez
+let renderPending = false;
 let fundRefreshError = null;
 let quotesLoadedAt = null;
 let attachments = []; // { data, mediaType, url }
@@ -89,6 +92,11 @@ function renderHero() {
   // Toplamlar sunucuda hesaplanır, geçmiş grafiğiyle aynı rakam görünür. Fiyatlar gelene kadar boştur.
   if (!totals) return;
   $('net-worth').textContent = money(totals.net);
+  $('net-daily').className = `hero-daily ${changeClass(totals.dailyChange)}`;
+  $('net-daily').textContent = totals.dailyPercent === null
+    ? ''
+    : `Bugün ${percent(totals.dailyPercent)} (${signedMoney(totals.dailyChange)})`;
+  $('net-daily').title = 'Hisse, fon ve altının son işlem günündeki değişimi. Yüzde bu yatırımların toplamına göredir.';
   $('net-note').textContent = totals.missing > 0
     ? `Fiyatı alınamayan ${totals.missing} varlık bu toplama dahil değil.`
     : '';
@@ -109,6 +117,12 @@ const GOLD_LABELS = { gram: 'Gram altın', ons: 'Ons altın' };
 
 function renderGold() {
   const lots = data.state.gold;
+  // Elde altın olmasa da ons altının fiyatı ve günlük değişimi başlıkta görünür.
+  const market = $('gold-market');
+  market.className = `head-note ${changeClass(goldChangePercent ?? 0)}`;
+  market.textContent = goldOunceUsd === null
+    ? ''
+    : `Ons ${dollars(goldOunceUsd)}${goldChangePercent === null ? '' : ` · bugün ${percent(goldChangePercent)}`}`;
   if (lots.length === 0) {
     $('gold').replaceChildren(h('p', { class: 'empty' }, 'Henüz altın yok.'));
     $('gold-status').textContent = '';
@@ -125,7 +139,7 @@ function renderGold() {
     const value = unit === null ? null : unit * lot.quantity;
     const cost = lot.buyPrice * lot.quantity;
     const pnl = value === null ? null : value - cost;
-    return h('tr', { onclick: () => openEditor('gold', { ...lot, price: lot.buyPrice, label: GOLD_LABELS[lot.kind] }), title: 'Düzenlemek için tıkla' },
+    return h('tr', { draggable: 'true', 'data-sort-key': lot.id, onclick: () => openEditor('gold', { ...lot, price: lot.buyPrice, label: GOLD_LABELS[lot.kind] }), title: 'Düzenlemek için tıkla, sıralamak için sürükle' },
       h('td', {}, h('button', { type: 'button', class: 'symbol' }, GOLD_LABELS[lot.kind]), h('span', { class: 'row-sub' }, longDate(lot.date))),
       h('td', { class: 'num' }, number(lot.quantity)),
       h('td', { class: 'num hide-narrow' }, format(lot.buyPrice)),
@@ -307,7 +321,7 @@ function renderMonth() {
     ? 'Bu tahminle ay sonunda bankadaki para yetmiyor.'
     : 'Tahmindir: yalnızca buraya girdiğin düzenli gelir, gider ve kart borçlarını hesaba katar.';
   $('expenses').replaceChildren(...(expenses.length ? expenses.map((e) =>
-    h('li', {}, h('button', { type: 'button', class: 'row', onclick: () => openEditor('expense', e) },
+    h('li', { draggable: 'true', 'data-sort-key': e.id }, h('button', { type: 'button', class: 'row', onclick: () => openEditor('expense', e) },
       h('span', {},
         h('span', { class: 'row-title' }, e.name),
         h('span', { class: 'row-sub' }, `Her ayın ${dayLabel(e.day)} ← ${e.accountName}`),
@@ -404,7 +418,7 @@ function renderHoldings(rows, { boxId, statusId, format, editorKind }) {
   const anyPnl = rows.some((r) => r.pnl !== null);
 
   const body = rows.map((r) =>
-    h('tr', { onclick: () => openEditor(editorKind, r), title: 'Düzenlemek için tıkla' },
+    h('tr', { draggable: 'true', 'data-sort-key': r.symbol, onclick: () => openEditor(editorKind, r), title: 'Düzenlemek için tıkla, sıralamak için sürükle' },
       h('td', {}, h('button', { type: 'button', class: 'symbol' }, r.symbol)),
       h('td', { class: 'num hide-narrow' }, number(r.quantity)),
       h('td', { class: 'num' },
@@ -447,7 +461,7 @@ function renderFunds() {
   const { funds } = data.state;
   $('funds').replaceChildren(...(funds.length ? funds.map((fund) => {
     const pnl = fund.cost == null ? null : fund.value - fund.cost;
-    return h('li', {}, h('button', { type: 'button', class: 'row', onclick: () => openEditor('fund', fund) },
+    return h('li', { draggable: 'true', 'data-sort-key': fund.id }, h('button', { type: 'button', class: 'row', onclick: () => openEditor('fund', fund) },
       h('span', {},
         h('span', { class: 'row-title' }, fund.name),
         h('span', { class: 'row-sub' }, `${fund.moneyMarket ? 'Para piyasası · ' : ''}${longDate(fund.updatedAt)} değeri`)),
@@ -472,12 +486,14 @@ function renderFunds() {
 
 function renderMoneyMarket() {
   const { moneyMarket: mm } = data.view;
-  const color = (index) => `var(--seg-${(index % 8) + 1})`;
+  // Renk sıraya değil kayda bağlıdır: ayırma sürüklenince rengi değişmez.
+  const colorOrder = mm.buckets.map((b) => b.id).sort();
+  const color = (bucket) => `var(--seg-${(colorOrder.indexOf(bucket.id) % 8) + 1})`;
   const parts = [];
   if (mm.total > 0) {
-    mm.buckets.forEach((bucket, index) => {
+    mm.buckets.forEach((bucket) => {
       if (bucket.amount > 0) {
-        parts.push(h('div', { class: 'segment', title: `${bucket.name}: ${money(bucket.amount)}`, style: `flex:${bucket.amount};background:${color(index)}` }));
+        parts.push(h('div', { class: 'segment', title: `${bucket.name}: ${money(bucket.amount)}`, style: `flex:${bucket.amount};background:${color(bucket)}` }));
       }
     });
     if (mm.unallocated > 0) {
@@ -485,11 +501,11 @@ function renderMoneyMarket() {
     }
   }
 
-  const rows = mm.buckets.map((bucket, index) => {
+  const rows = mm.buckets.map((bucket) => {
     const card = data.view.cards.find((c) => c.id === bucket.cardId);
-    return h('li', {}, h('button', { type: 'button', class: 'row', onclick: () => openEditor('bucket', { ...bucket, cardName: card?.name ?? '' }) },
+    return h('li', { draggable: 'true', 'data-sort-key': bucket.id }, h('button', { type: 'button', class: 'row', onclick: () => openEditor('bucket', { ...bucket, cardName: card?.name ?? '' }) },
       h('span', {},
-        h('span', { class: 'swatch', style: `background:${color(index)}` }),
+        h('span', { class: 'swatch', style: `background:${color(bucket)}` }),
         h('span', { class: 'row-title' }, bucket.name),
         card ? h('span', { class: 'row-sub' }, `${card.name} için`) : null),
       h('span', { class: 'num' }, money(bucket.amount))));
@@ -517,7 +533,7 @@ function emptyRow(text) {
 function renderAccounts() {
   const { accounts } = data.state;
   $('accounts').replaceChildren(...(accounts.length ? accounts.map((account) =>
-    h('li', {}, h('button', { type: 'button', class: 'row', onclick: () => openEditor('account', account) },
+    h('li', { draggable: 'true', 'data-sort-key': account.id }, h('button', { type: 'button', class: 'row', onclick: () => openEditor('account', account) },
       h('span', { class: 'row-title' }, account.name),
       h('span', { class: 'num' }, money(account.balance))))) : [emptyRow('Henüz hesap yok.')]));
 }
@@ -539,7 +555,7 @@ function coverageLabel(card) {
 function renderCards() {
   const { cards } = data.view;
   $('cards').replaceChildren(...(cards.length ? cards.map((card) =>
-    h('li', { class: 'card-row' },
+    h('li', { class: 'card-row', draggable: 'true', 'data-sort-key': card.id },
       h('button', { type: 'button', class: 'row', onclick: () => openEditor('card', card) },
         h('span', {},
           h('span', { class: 'row-title' }, card.name),
@@ -557,7 +573,7 @@ function openPayCard(card) {
 function renderIncomes() {
   const { incomes } = data.view;
   $('incomes').replaceChildren(...(incomes.length ? incomes.map((s) =>
-    h('li', {}, h('button', { type: 'button', class: 'row', onclick: () => openEditor('income', s) },
+    h('li', { draggable: 'true', 'data-sort-key': s.id }, h('button', { type: 'button', class: 'row', onclick: () => openEditor('income', s) },
       h('span', {},
         h('span', { class: 'row-title' }, s.name),
         h('span', { class: 'row-sub' }, `Her ayın ${dayLabel(s.day)} → ${s.accountName}`),
@@ -581,8 +597,71 @@ function renderActivity() {
       item.amount != null ? h('span', { class: `num ${changeClass(item.amount)}` }, signedMoney(item.amount)) : null))) : [emptyRow('Gelir yatışları ve asistan güncellemeleri burada görünür.')]));
 }
 
+function sortKeys(box) {
+  return [...box.querySelectorAll('[data-sort-key]')].map((el) => el.dataset.sortKey);
+}
+
+/**
+ * Listedeki satırları sürükleyerek sıralar. Kutunun içeriği her çizimde yenilendiği için
+ * olaylar satırlara değil, kalıcı olan kutuya bağlanır.
+ */
+function enableSort(boxId, list) {
+  const box = $(boxId);
+  box.addEventListener('dragstart', (event) => {
+    const item = event.target.closest?.('[data-sort-key]');
+    if (!item) return;
+    activeDrag = { box, item, list, before: sortKeys(box).join('\n') };
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', item.dataset.sortKey);
+    item.classList.add('is-dragging');
+  });
+  box.addEventListener('dragend', async (event) => {
+    if (activeDrag?.box !== box) return;
+    const { item, before } = activeDrag;
+    item.classList.remove('is-dragging');
+    activeDrag = null;
+    const keys = sortKeys(box);
+    if (event.dataTransfer.dropEffect === 'none') {
+      // Esc ile iptal: ekrandaki geçici sıra bırakılır, kayıtlı sıra geri gelir.
+      renderPending = true;
+    } else if (keys.join('\n') !== before) {
+      try {
+        await submitOperations([{ type: 'reorder', list, keys }]);
+        renderPending = false;
+      } catch {
+        // Sunucu kabul etmezse kayıtlı sıra geri gelir.
+        renderPending = true;
+      }
+    }
+    if (renderPending) render();
+  });
+}
+
+/**
+ * Sürüklenen satırı imlecin yüksekliğine göre yerleştirir. Yer, imlecin altındaki satıra göre
+ * bulunmadığı için hızlı harekette ve listenin dışına bırakınca da doğru sıraya girer.
+ * Satır olmayan öğeler (ayrılmamış satırı) yerinde kalır.
+ */
+function positionDraggedRow(clientY) {
+  const { item } = activeDrag;
+  const parent = item.parentNode;
+  const others = [...parent.children].filter((el) => el.dataset.sortKey && el !== item);
+  if (others.length === 0) return;
+  const next = others.find((el) => {
+    const { top, height } = el.getBoundingClientRect();
+    return clientY < top + height / 2;
+  });
+  const anchor = next ?? others.at(-1).nextSibling;
+  if (anchor !== item && item.nextSibling !== anchor) parent.insertBefore(item, anchor);
+}
+
 function render() {
   if (!data) return;
+  if (activeDrag) {
+    renderPending = true;
+    return;
+  }
+  renderPending = false;
   const rows = holdingRows();
   $('sample-banner').hidden = !data.state.isSample;
   renderHero();
@@ -614,6 +693,7 @@ async function loadQuotes() {
   quotes = new Map(result.quotes.map((q) => [`${q.market}:${q.symbol}`, q]));
   usdTry = result.usdTry;
   goldOunceUsd = result.goldOunceUsd;
+  goldChangePercent = result.goldChangePercent;
   totals = result.totals;
   // Fon fiyatı bu istekle güncellenmiş olabilir.
   data = { state: result.state, view: result.view };
@@ -1028,9 +1108,26 @@ document.addEventListener('paste', (event) => {
   const files = [...(event.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));
   if (files.length) addFiles(files);
 });
+for (const [boxId, list] of [
+  ['holdings', 'holdings:BIST'],
+  ['us-holdings', 'holdings:US'],
+  ['funds', 'funds'],
+  ['gold', 'gold'],
+  ['money-market', 'buckets'],
+  ['accounts', 'accounts'],
+  ['cards', 'cards'],
+  ['incomes', 'incomes'],
+  ['expenses', 'expenses'],
+]) enableSort(boxId, list);
+
 for (const type of ['dragover', 'dragenter']) {
   document.addEventListener(type, (event) => {
     event.preventDefault();
+    // Satır sürüklenirken fotoğraf bırakma alanı devreye girmesin.
+    if (activeDrag) {
+      positionDraggedRow(event.clientY);
+      return;
+    }
     $('composer').classList.add('dragging');
   });
 }
@@ -1039,6 +1136,7 @@ document.addEventListener('dragleave', (event) => {
 });
 document.addEventListener('drop', (event) => {
   event.preventDefault();
+  if (activeDrag) return;
   $('composer').classList.remove('dragging');
   addFiles([...event.dataTransfer.files]);
 });
