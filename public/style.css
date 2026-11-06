@@ -139,13 +139,52 @@ th {
   text-align: right; padding: 0 0 6px 12px; white-space: nowrap;
 }
 th:first-child, td:first-child { text-align: left; padding-left: 0; }
+th.left { text-align: left; }
 td { padding: 9px 0 9px 12px; border-top: 1px solid var(--line); }
 tbody tr { cursor: pointer; }
 tbody tr:hover td { background: var(--surface-2); }
+tbody tr.static { cursor: default; }
+tbody tr.static:hover td { background: none; }
 tfoot td { font-weight: 650; border-top: 2px solid var(--line); }
 .symbol { font-weight: 600; background: none; border: 0; padding: 0; }
 .up { color: var(--good); }
 .down { color: var(--bad); }
+.topbar {
+  display: flex; align-items: center; gap: 12px;
+  max-width: 1180px; margin: 0 auto; padding: 14px 20px 0;
+}
+.menu-button {
+  display: grid; gap: 4px; width: 38px; height: 38px; padding: 10px 9px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+}
+.menu-button span { display: block; height: 2px; background: var(--ink); border-radius: 2px; }
+.menu-button:hover { background: var(--surface-2); }
+dialog.menu {
+  margin: 0; height: 100vh; max-height: 100vh; width: min(280px, 85vw);
+  border-width: 0 1px 0 0; border-radius: 0; padding: 18px;
+}
+.menu-close { display: block; margin-left: auto; }
+#menu-links { display: grid; gap: 4px; margin-top: 14px; }
+#menu-links a {
+  padding: 10px 12px; border-radius: 8px; color: var(--ink); text-decoration: none; font-weight: 550;
+}
+#menu-links a:hover { background: var(--surface-2); }
+#menu-links a[aria-current="page"] { background: var(--surface-2); }
+.page[hidden] { display: none; }
+.span-12 { grid-column: span 12; }
+.card-row { display: flex; align-items: center; gap: 8px; }
+.card-row .row { flex: 1; min-width: 0; }
+.button-link { display: inline-block; text-decoration: none; }
+.backup-restore { margin-top: 24px; }
+.chart { position: relative; margin: 12px 0 18px; }
+.chart svg { display: block; width: 100%; height: auto; touch-action: none; }
+.chart text { fill: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.chart-tooltip {
+  position: absolute; top: 0; pointer-events: none; white-space: nowrap;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 10px; font-size: 13px;
+}
+.summary-total { font-weight: 650; font-size: 17px; }
 .pct { display: block; font-size: 13px; }
 .field-check { display: flex; align-items: center; gap: 8px; }
 .field.field-check input { display: inline; width: auto; margin: 0; }

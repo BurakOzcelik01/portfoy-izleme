@@ -12,7 +12,72 @@
     <button type="button" id="dismiss-sample" class="link">Girdim, bu uyarıyı kapat</button>
   </div>
 
+  <div class="topbar">
+    <button type="button" class="menu-button" id="menu-open" aria-label="Menüyü aç" aria-haspopup="dialog">
+      <span></span><span></span><span></span>
+    </button>
+    <strong id="page-title">Ana ekran</strong>
+  </div>
+
+  <dialog id="menu" class="menu" aria-label="Sayfalar">
+    <button type="button" class="ghost menu-close" id="menu-close">Kapat</button>
+    <nav id="menu-links"></nav>
+  </dialog>
+
   <main>
+    <section id="page-trades" class="page" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Alım/satım işlemleri</h2>
+          <button type="button" class="ghost" data-add="trade">+ İşlem ekle</button>
+        </div>
+        <p class="muted small" id="trades-summary"></p>
+        <p class="form-error" id="trades-error" role="alert" hidden></p>
+        <div id="trades"></div>
+      </div>
+    </section>
+
+    <section id="page-history" class="page" hidden>
+      <div class="panel">
+        <div class="panel-head"><h2>Net varlık geçmişi</h2></div>
+        <p class="muted small">Uygulama açıkken her gün için son değer kaydedilir. Açılmayan günler grafikte boş geçer.</p>
+        <div id="history-chart" class="chart"></div>
+        <div id="history-table"></div>
+      </div>
+    </section>
+
+    <section id="page-month" class="page" hidden>
+      <div class="grid">
+        <div class="panel span-7">
+          <div class="panel-head"><h2 id="month-title">Ay sonu</h2></div>
+          <ul class="rows" id="month-summary"></ul>
+          <p class="muted small" id="month-note"></p>
+        </div>
+        <div class="panel span-5">
+          <div class="panel-head">
+            <h2>Sabit giderler</h2>
+            <button type="button" class="ghost" data-add="expense">+ Gider</button>
+          </div>
+          <ul class="rows" id="expenses"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="page-backup" class="page" hidden>
+      <div class="panel">
+        <div class="panel-head"><h2>Yedekleme</h2></div>
+        <p class="muted">Bütün kayıtların tek bir dosya olarak iner. Dosyada finansal bilgilerin var, güvenli bir yerde sakla ve paylaşma.</p>
+        <p><a class="send button-link" href="/api/backup" download>Yedeği indir</a></p>
+        <div class="panel-head backup-restore"><h2>Yedekten geri yükle</h2></div>
+        <p class="muted">Seçtiğin yedek mevcut kayıtların yerine geçer. Mevcut kayıtların önce uygulama klasöründe <code>data.before-restore.json</code> olarak saklanır.</p>
+        <p><input type="file" id="restore-file" accept="application/json,.json" aria-label="Yedek dosyası"></p>
+        <p class="muted small" id="restore-preview"></p>
+        <p class="form-error" id="restore-error" role="alert" hidden></p>
+        <p><button type="button" class="danger" id="restore-confirm" hidden>Geri yükle</button></p>
+      </div>
+    </section>
+
+    <section id="page-home" class="page">
     <header class="hero">
       <div>
         <p class="eyebrow">Net varlık</p>
@@ -58,6 +123,15 @@
         <p class="muted small" id="funds-status"></p>
       </section>
 
+      <section class="panel span-12" aria-labelledby="h-gold">
+        <div class="panel-head">
+          <h2 id="h-gold">Altın</h2>
+          <button type="button" class="ghost" data-add="gold">+ Altın ekle</button>
+        </div>
+        <div id="gold"></div>
+        <p class="muted small" id="gold-status"></p>
+      </section>
+
       <section class="panel span-4" aria-labelledby="h-accounts">
         <div class="panel-head">
           <h2 id="h-accounts">Banka hesapları</h2>
@@ -95,6 +169,7 @@
         <ul class="rows" id="activity"></ul>
       </section>
     </div>
+    </section>
   </main>
 
   <div class="dock">

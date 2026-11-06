@@ -6,6 +6,8 @@ const MAX_IMAGES = 10;
 let data = null; // { state, view }
 let quotes = new Map();
 let usdTry = null;
+let goldOunceUsd = null;
+let totals = null;
 let fundRefreshError = null;
 let quotesLoadedAt = null;
 let attachments = []; // { data, mediaType, url }
@@ -83,28 +85,311 @@ function changeClass(value) {
   return '';
 }
 
-function renderHero(rows) {
-  const { view } = data;
-  const priced = rows.filter((r) => r.valueTry !== null);
-  const stocks = priced.reduce((sum, r) => sum + r.valueTry, 0);
-  const missing = rows.length - priced.length;
-  // Para piyasası fonları da fon toplamının içindedir; özet satırında ayrı gösterilir, iki kez sayılmaz.
-  const net = view.cashTotal + stocks + view.fundsTotal - view.debtTotal;
-
-  $('net-worth').textContent = money(net);
-  $('net-note').textContent = missing > 0 && quotesLoadedAt
-    ? `Fiyatı alınamayan ${missing} hisse bu toplama dahil değil.`
+function renderHero() {
+  // Toplamlar sunucuda hesaplanır, geçmiş grafiğiyle aynı rakam görünür. Fiyatlar gelene kadar boştur.
+  if (!totals) return;
+  $('net-worth').textContent = money(totals.net);
+  $('net-note').textContent = totals.missing > 0
+    ? `Fiyatı alınamayan ${totals.missing} varlık bu toplama dahil değil.`
     : '';
   $('hero-parts').replaceChildren(
     ...[
-      ['Banka', money(view.cashTotal)],
-      ['Hisseler', money(stocks)],
-      ['Diğer fonlar', money(view.fundsTotal - view.moneyMarket.total)],
-      ['Para piyasası', money(view.moneyMarket.total)],
-      ['Kart borcu', view.debtTotal > 0 ? `−${money(view.debtTotal)}` : money(0)],
+      ['Banka', money(totals.cash)],
+      ['Hisseler', money(totals.stocks)],
+      ['Altın', money(totals.gold)],
+      ['Diğer fonlar', money(totals.funds - totals.moneyMarket)],
+      ['Para piyasası', money(totals.moneyMarket)],
+      ['Kart borcu', totals.debt > 0 ? `−${money(totals.debt)}` : money(0)],
     ].flatMap(([label, value]) => [h('div', {}, h('dt', {}, label), h('dd', {}, value))]),
   );
 }
+
+const GRAMS_PER_OUNCE = 31.1034768;
+const GOLD_LABELS = { gram: 'Gram altın', ons: 'Ons altın' };
+
+function renderGold() {
+  const lots = data.state.gold;
+  if (lots.length === 0) {
+    $('gold').replaceChildren(h('p', { class: 'empty' }, 'Henüz altın yok.'));
+    $('gold-status').textContent = '';
+    return;
+  }
+  const priced = goldOunceUsd !== null && usdTry !== null;
+  const unitPrice = (lot) => {
+    if (!priced) return null;
+    return lot.kind === 'ons' ? goldOunceUsd : (goldOunceUsd * usdTry) / GRAMS_PER_OUNCE;
+  };
+  const rows = lots.map((lot) => {
+    const format = lot.kind === 'ons' ? dollars : money;
+    const unit = unitPrice(lot);
+    const value = unit === null ? null : unit * lot.quantity;
+    const cost = lot.buyPrice * lot.quantity;
+    const pnl = value === null ? null : value - cost;
+    return h('tr', { onclick: () => openEditor('gold', { ...lot, price: lot.buyPrice, label: GOLD_LABELS[lot.kind] }), title: 'Düzenlemek için tıkla' },
+      h('td', {}, h('button', { type: 'button', class: 'symbol' }, GOLD_LABELS[lot.kind]), h('span', { class: 'row-sub' }, longDate(lot.date))),
+      h('td', { class: 'num' }, number(lot.quantity)),
+      h('td', { class: 'num hide-narrow' }, format(lot.buyPrice)),
+      h('td', { class: 'num' }, unit === null ? '—' : format(unit)),
+      h('td', { class: 'num' }, value === null ? '—' : format(value)),
+      h('td', { class: `num hide-narrow ${changeClass(pnl ?? 0)}` }, pnl === null ? '—' : pnlCell(format, pnl, cost)));
+  });
+  $('gold').replaceChildren(h('div', { class: 'table-wrap' }, h('table', {},
+    h('thead', {}, h('tr', {},
+      h('th', {}, 'Tür'), h('th', {}, 'Miktar'), h('th', { class: 'hide-narrow' }, 'Alış'),
+      h('th', {}, 'Güncel'), h('th', {}, 'Değer'), h('th', { class: 'hide-narrow' }, 'Kâr/Zarar'))),
+    h('tbody', {}, rows))));
+  $('gold-status').textContent = priced
+    ? `Toplam ${money(totals?.gold ?? 0)}. Gram fiyatı, ons altın (${dollars(goldOunceUsd)}) ve dolar kurundan hesaplanır; banka ve kuyumcu fiyatından farklı olabilir. Kaynak: Yahoo Finance vadeli altın.`
+    : 'Altın fiyatı alınamadı.';
+}
+
+const TRADE_KINDS = { BIST: 'BIST', US: 'ABD', FUND: 'Fon' };
+
+/** Yanlışlıkla silmeyi önlemek için ilk basışta onay ister. */
+function confirmButton(label, confirmLabel, onConfirm) {
+  let armed = false;
+  const button = h('button', { type: 'button', class: 'ghost' }, label);
+  button.addEventListener('click', () => {
+    if (armed) onConfirm();
+    else {
+      armed = true;
+      button.textContent = confirmLabel;
+    }
+  });
+  return button;
+}
+
+function renderTrades() {
+  const { trades } = data.state;
+  const { realizedTotal, realizedUsd } = data.view;
+  const parts = [`Gerçekleşen kâr/zarar: ${signedMoney(realizedTotal)}`];
+  if (realizedUsd !== 0) parts.push(`ABD: ${signed(dollars, realizedUsd)}`);
+  $('trades-summary').textContent = trades.length ? `${parts.join(' · ')}. Yalnızca buraya girilen satışlar sayılır.` : '';
+  if (trades.length === 0) {
+    $('trades').replaceChildren(h('p', { class: 'empty' }, 'Henüz işlem yok. Alış ve satışlarını buraya girersen adet ve ortalama maliyet kendiliğinden güncellenir.'));
+    return;
+  }
+  const rows = trades.map((t) => {
+    const format = t.kind === 'US' ? dollars : money;
+    const remove = confirmButton('Sil', 'Eminim', async () => {
+      $('trades-error').hidden = true;
+      try {
+        await submitOperations([{ type: 'remove_trade', id: t.id }]);
+      } catch (error) {
+        $('trades-error').textContent = error.message;
+        $('trades-error').hidden = false;
+        renderTrades();
+      }
+    });
+    return h('tr', { class: 'static' },
+      h('td', {}, longDate(t.date)),
+      h('td', {}, h('span', { class: 'row-title' }, t.symbol), h('span', { class: 'row-sub' }, TRADE_KINDS[t.kind])),
+      h('td', {}, t.side === 'buy' ? 'Alış' : 'Satış'),
+      h('td', { class: 'num' }, number(t.quantity)),
+      h('td', { class: 'num' }, format(t.price)),
+      h('td', { class: 'num hide-narrow' }, format(t.total)),
+      h('td', { class: `num ${changeClass(t.realized ?? 0)}` }, t.realized === null ? '—' : signed(format, t.realized)),
+      h('td', { class: 'num' }, remove));
+  });
+  $('trades').replaceChildren(h('div', { class: 'table-wrap' }, h('table', {},
+    h('thead', {}, h('tr', {},
+      h('th', {}, 'Tarih'), h('th', { class: 'left' }, 'Varlık'), h('th', { class: 'left' }, 'Tür'), h('th', {}, 'Adet'), h('th', {}, 'Fiyat'),
+      h('th', { class: 'hide-narrow' }, 'Tutar'), h('th', {}, 'Kâr/Zarar'), h('th', {}, ''))),
+    h('tbody', {}, rows))));
+}
+
+const svg = (tag, attrs = {}, ...children) => {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+  el.append(...children);
+  return el;
+};
+
+function renderHistory() {
+  const entries = data.state.history;
+  const box = $('history-chart');
+  if (entries.length === 0) {
+    box.replaceChildren(h('p', { class: 'empty' }, 'Henüz kayıt yok. Bütün fiyatlar alındığında ilk kayıt oluşur.'));
+    $('history-table').replaceChildren();
+    return;
+  }
+  const width = 720;
+  const height = 280;
+  const pad = { left: 88, right: 16, top: 16, bottom: 28 };
+  const values = entries.map((e) => e.net);
+  const span = Math.max(...values) - Math.min(...values) || Math.abs(values[0]) * 0.1 || 1;
+  const low = Math.min(...values) - span * 0.1;
+  const high = Math.max(...values) + span * 0.1;
+  const x = (i) => (entries.length === 1 ? (pad.left + width - pad.right) / 2 : pad.left + (i * (width - pad.left - pad.right)) / (entries.length - 1));
+  const y = (value) => height - pad.bottom - ((value - low) / (high - low)) * (height - pad.top - pad.bottom);
+  const axisMoney = (value) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 }).format(value);
+
+  const chart = svg('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': 'Net varlık geçmişi; değerler aşağıdaki tabloda' });
+  for (let i = 0; i <= 3; i += 1) {
+    const value = low + ((high - low) * i) / 3;
+    chart.append(
+      svg('line', { x1: pad.left, x2: width - pad.right, y1: y(value), y2: y(value), stroke: 'var(--line)' }),
+      svg('text', { x: pad.left - 8, y: y(value) + 4, 'text-anchor': 'end' }, axisMoney(value)),
+    );
+  }
+  chart.append(svg('text', { x: pad.left, y: height - 8 }, longDate(entries[0].date)));
+  if (entries.length > 1) chart.append(svg('text', { x: width - pad.right, y: height - 8, 'text-anchor': 'end' }, longDate(entries.at(-1).date)));
+  if (entries.length > 1) {
+    chart.append(svg('polyline', {
+      points: entries.map((e, i) => `${x(i)},${y(e.net)}`).join(' '),
+      fill: 'none', stroke: 'var(--seg-1)', 'stroke-width': 2, 'stroke-linejoin': 'round',
+    }));
+  }
+  const last = entries.length - 1;
+  chart.append(svg('circle', { cx: x(last), cy: y(entries[last].net), r: 4, fill: 'var(--seg-1)', stroke: 'var(--surface)', 'stroke-width': 2 }));
+
+  const crosshair = svg('line', { y1: pad.top, y2: height - pad.bottom, stroke: 'var(--ink-3)', visibility: 'hidden' });
+  const marker = svg('circle', { r: 4, fill: 'var(--seg-1)', stroke: 'var(--surface)', 'stroke-width': 2, visibility: 'hidden' });
+  chart.append(crosshair, marker);
+  const tooltip = h('div', { class: 'chart-tooltip', hidden: true });
+
+  chart.addEventListener('pointermove', (event) => {
+    const rect = chart.getBoundingClientRect();
+    const px = ((event.clientX - rect.left) / rect.width) * width;
+    let index = 0;
+    entries.forEach((_, i) => { if (Math.abs(x(i) - px) < Math.abs(x(index) - px)) index = i; });
+    const entry = entries[index];
+    crosshair.setAttribute('x1', x(index));
+    crosshair.setAttribute('x2', x(index));
+    crosshair.setAttribute('visibility', 'visible');
+    marker.setAttribute('cx', x(index));
+    marker.setAttribute('cy', y(entry.net));
+    marker.setAttribute('visibility', 'visible');
+    tooltip.hidden = false;
+    tooltip.textContent = `${longDate(entry.date)}: ${money(entry.net)}`;
+    const left = (x(index) / width) * rect.width;
+    tooltip.style.left = `${Math.min(left + 10, rect.width - tooltip.offsetWidth)}px`;
+  });
+  chart.addEventListener('pointerleave', () => {
+    crosshair.setAttribute('visibility', 'hidden');
+    marker.setAttribute('visibility', 'hidden');
+    tooltip.hidden = true;
+  });
+  box.replaceChildren(chart, tooltip);
+  if (entries.length === 1) box.append(h('p', { class: 'muted small' }, 'Çizgi ikinci günün kaydıyla oluşacak.'));
+
+  const rows = [...entries].reverse().map((entry, i, list) => {
+    const previous = list[i + 1];
+    const change = previous ? entry.net - previous.net : null;
+    return h('tr', { class: 'static' },
+      h('td', {}, longDate(entry.date)),
+      h('td', { class: 'num' }, money(entry.net)),
+      h('td', { class: `num ${changeClass(change ?? 0)}` }, change === null ? '—' : pnlCell(money, change, previous.net)));
+  });
+  $('history-table').replaceChildren(h('div', { class: 'table-wrap' }, h('table', {},
+    h('thead', {}, h('tr', {}, h('th', {}, 'Tarih'), h('th', {}, 'Net varlık'), h('th', {}, 'Değişim'))),
+    h('tbody', {}, rows))));
+}
+
+function renderMonth() {
+  const { monthEnd: m, expenses } = data.view;
+  $('month-title').textContent = `Ay sonu tahmini (${longDate(m.date)})`;
+  const line = (label, amount, sub) => h('li', {}, h('div', { class: 'row' },
+    h('span', {}, h('span', { class: 'row-title' }, label), sub ? h('span', { class: 'row-sub' }, sub) : null),
+    h('span', { class: 'num' }, amount)));
+  const names = (list) => list.map((item) => `${item.name} (${longDate(item.nextDate ?? item.nextDue)})`).join(', ');
+  const cardSub = m.dueCards.map((c) => `${c.name}: ${money(c.debt)} borç, ${money(Math.min(c.reserved, c.debt))} para piyasasında ayrılmış`).join(' · ');
+  $('month-summary').replaceChildren(
+    line('Şu anki banka toplamı', money(m.cash)),
+    line('Bu ay yatacak gelirler', m.incomeTotal > 0 ? `+${money(m.incomeTotal)}` : money(0), names(m.pendingIncomes) || 'Kalan gelir yok'),
+    line('Bu ay çıkacak giderler', m.expenseTotal > 0 ? `−${money(m.expenseTotal)}` : money(0), names(m.pendingExpenses) || 'Kalan gider yok'),
+    line('Bankadan ödenecek kart borcu', m.cardFromBank > 0 ? `−${money(m.cardFromBank)}` : money(0), cardSub || 'Bu ay son ödemesi olan borç yok'),
+    h('li', {}, h('div', { class: 'row summary-total' },
+      h('span', {}, 'Ay sonunda kalan'),
+      h('span', { class: `num ${m.estimate < 0 ? 'down' : ''}` }, money(m.estimate)))),
+  );
+  $('month-note').textContent = m.estimate < 0
+    ? 'Bu tahminle ay sonunda bankadaki para yetmiyor.'
+    : 'Tahmindir: yalnızca buraya girdiğin düzenli gelir, gider ve kart borçlarını hesaba katar.';
+  $('expenses').replaceChildren(...(expenses.length ? expenses.map((e) =>
+    h('li', {}, h('button', { type: 'button', class: 'row', onclick: () => openEditor('expense', e) },
+      h('span', {},
+        h('span', { class: 'row-title' }, e.name),
+        h('span', { class: 'row-sub' }, `Her ayın ${dayLabel(e.day)} ← ${e.accountName}`),
+        h('span', { class: 'row-sub' }, `Sonraki: ${longDate(e.nextDate)} (${e.daysToNext} gün)`)),
+      h('span', { class: 'num' }, money(e.amount))))) : [emptyRow('Henüz gider yok. Kira, abonelik gibi düzenli ödemeleri ekle.')]));
+}
+
+/* ---------- Menü ---------- */
+
+const PAGES = {
+  home: 'Ana ekran',
+  trades: 'Alım/satım',
+  history: 'Portföy geçmişi',
+  month: 'Ay sonu',
+  backup: 'Yedekleme',
+};
+
+const currentPage = () => {
+  const key = location.hash.replace(/^#\//, '');
+  return Object.hasOwn(PAGES, key) ? key : 'home';
+};
+
+function showPage() {
+  const page = currentPage();
+  for (const key of Object.keys(PAGES)) $(`page-${key}`).hidden = key !== page;
+  $('page-title').textContent = PAGES[page];
+  $('menu-links').replaceChildren(...Object.entries(PAGES).map(([key, label]) =>
+    h('a', { href: `#/${key}`, 'aria-current': key === page ? 'page' : null, onclick: () => $('menu').close() }, label)));
+  window.scrollTo(0, 0);
+}
+
+window.addEventListener('hashchange', showPage);
+$('menu-open').addEventListener('click', () => $('menu').showModal());
+$('menu-close').addEventListener('click', () => $('menu').close());
+showPage();
+
+/* ---------- Yedekleme ---------- */
+
+let pendingRestore = null;
+
+function showRestoreError(message) {
+  $('restore-error').textContent = message;
+  $('restore-error').hidden = !message;
+}
+
+$('restore-file').addEventListener('change', async (event) => {
+  const [file] = event.target.files;
+  pendingRestore = null;
+  $('restore-confirm').hidden = true;
+  $('restore-preview').textContent = '';
+  showRestoreError('');
+  if (!file) return;
+  try {
+    const backup = JSON.parse(await file.text());
+    if (backup?.app !== 'portfoy-izleme' || !backup.state) throw new Error('not a backup');
+    const s = backup.state;
+    pendingRestore = backup;
+    $('restore-preview').textContent = `${new Date(backup.exportedAt).toLocaleString('tr-TR')} tarihli yedek: ${s.holdings?.length ?? 0} hisse, ${s.funds?.length ?? 0} fon, ${s.accounts?.length ?? 0} hesap, ${s.trades?.length ?? 0} işlem.`;
+    $('restore-confirm').textContent = 'Geri yükle';
+    $('restore-confirm').hidden = false;
+  } catch {
+    showRestoreError('Bu dosya bu uygulamanın yedeği değil.');
+  }
+});
+
+$('restore-confirm').addEventListener('click', async () => {
+  if ($('restore-confirm').textContent !== 'Eminim, mevcut kayıtların yerine geçsin') {
+    $('restore-confirm').textContent = 'Eminim, mevcut kayıtların yerine geçsin';
+    return;
+  }
+  try {
+    data = await api('/api/restore', { backup: pendingRestore });
+    pendingRestore = null;
+    $('restore-confirm').hidden = true;
+    $('restore-file').value = '';
+    $('restore-preview').textContent = 'Yedek geri yüklendi.';
+    render();
+    loadQuotes().catch(() => {});
+  } catch (error) {
+    showRestoreError(error.message);
+  }
+});
 
 function renderHoldings(rows, { boxId, statusId, format, editorKind }) {
   const box = $(boxId);
@@ -254,12 +539,19 @@ function coverageLabel(card) {
 function renderCards() {
   const { cards } = data.view;
   $('cards').replaceChildren(...(cards.length ? cards.map((card) =>
-    h('li', {}, h('button', { type: 'button', class: 'row', onclick: () => openEditor('card', card) },
-      h('span', {},
-        h('span', { class: 'row-title' }, card.name),
-        h('span', { class: 'row-sub' }, `Kesim ${longDate(card.nextStatement)} · Son ödeme ${longDate(card.nextDue)}`),
-        dueLabel(card), card.debt > 0 && dueLabel(card) && coverageLabel(card) ? ' ' : null, coverageLabel(card)),
-      h('span', { class: 'num' }, money(card.debt))))) : [emptyRow('Henüz kart yok.')]));
+    h('li', { class: 'card-row' },
+      h('button', { type: 'button', class: 'row', onclick: () => openEditor('card', card) },
+        h('span', {},
+          h('span', { class: 'row-title' }, card.name),
+          h('span', { class: 'row-sub' }, `Kesim ${longDate(card.nextStatement)} · Son ödeme ${longDate(card.nextDue)}`),
+          dueLabel(card), card.debt > 0 && dueLabel(card) && coverageLabel(card) ? ' ' : null, coverageLabel(card)),
+        h('span', { class: 'num' }, money(card.debt))),
+      card.debt > 0 ? h('button', { type: 'button', class: 'ghost', onclick: () => openPayCard(card) }, 'Ödedim') : null)) : [emptyRow('Henüz kart yok.')]));
+}
+
+function openPayCard(card) {
+  const linked = data.state.moneyMarket.buckets.find((b) => b.cardId === card.id && b.amount > 0);
+  openEditor('payCard', { ...card, amount: card.debt, source: linked ? `bucket:${linked.name}` : null });
 }
 
 function renderIncomes() {
@@ -293,7 +585,11 @@ function render() {
   if (!data) return;
   const rows = holdingRows();
   $('sample-banner').hidden = !data.state.isSample;
-  renderHero(rows);
+  renderHero();
+  renderGold();
+  renderTrades();
+  renderHistory();
+  renderMonth();
   renderHoldings(rows.filter((r) => r.market === 'BIST'), { boxId: 'holdings', statusId: 'quote-status', format: money, editorKind: 'holding' });
   renderHoldings(rows.filter((r) => r.market === 'US'), { boxId: 'us-holdings', statusId: 'us-status', format: dollars, editorKind: 'usHolding' });
   renderFunds();
@@ -317,6 +613,8 @@ async function loadQuotes() {
   const result = await api('/api/quotes');
   quotes = new Map(result.quotes.map((q) => [`${q.market}:${q.symbol}`, q]));
   usdTry = result.usdTry;
+  goldOunceUsd = result.goldOunceUsd;
+  totals = result.totals;
   // Fon fiyatı bu istekle güncellenmiş olabilir.
   data = { state: result.state, view: result.view };
   fundRefreshError = result.fundRefreshError;
@@ -401,6 +699,72 @@ const EDITORS = {
     save: (v) => ({ type: 'set_income', name: v.name, amount: v.amount, day: v.day, accountName: v.accountName }),
     remove: (v) => ({ type: 'remove_income', name: v.name }),
   },
+  expense: {
+    title: 'Sabit gider',
+    key: 'name',
+    fields: () => [
+      { name: 'name', label: 'Gider adı', type: 'text', required: true, keyField: true, hint: 'Örneğin: Kira, İnternet, Abonelik' },
+      { name: 'amount', label: 'Aylık tutar (TL)', type: 'number', required: true },
+      { name: 'day', label: 'Ödeme günü (ayın kaçı)', type: 'day', required: true, hint: 'O gün gelince tutar hesaptan kendiliğinden düşer' },
+      { name: 'accountName', label: 'Çekileceği hesap', type: 'select', required: true, options: data.state.accounts.map((a) => [a.name, a.name]) },
+    ],
+    save: (v) => ({ type: 'set_expense', name: v.name, amount: v.amount, day: v.day, accountName: v.accountName }),
+    remove: (v) => ({ type: 'remove_expense', name: v.name }),
+  },
+  payCard: {
+    title: 'Kart ödemesi',
+    key: 'name',
+    fields: () => [
+      { name: 'amount', label: 'Ödenen tutar (TL)', type: 'number', required: true },
+      {
+        name: 'source',
+        label: 'Para nereden çıktı?',
+        type: 'select',
+        required: true,
+        options: [
+          ...data.state.accounts.map((a) => [`account:${a.name}`, a.name]),
+          ...data.state.moneyMarket.buckets.map((b) => [`bucket:${b.name}`, `Para piyasası: ${b.name} (${money(b.amount)})`]),
+        ],
+      },
+      {
+        name: 'fundName',
+        label: 'Para piyasasından ödediysen hangi fon?',
+        type: 'select',
+        options: [['', 'Seçilmedi'], ...data.state.funds.filter((f) => f.moneyMarket).map((f) => [f.name, `${f.name} (${money(f.value)})`])],
+      },
+    ],
+    save: (v, record) => {
+      const [source, ...rest] = (v.source ?? '').split(':');
+      return { type: 'pay_card', name: record.name, amount: v.amount, source, sourceName: rest.join(':'), fundName: v.fundName };
+    },
+  },
+  trade: {
+    title: 'Alım/satım işlemi',
+    defaults: () => ({ date: data.view.today, kind: 'BIST', side: 'buy' }),
+    fields: () => [
+      { name: 'side', label: 'İşlem', type: 'select', required: true, options: [['buy', 'Alış'], ['sell', 'Satış']] },
+      { name: 'kind', label: 'Varlık', type: 'select', required: true, options: [['BIST', 'BIST hissesi'], ['US', 'ABD hissesi'], ['FUND', 'Yatırım fonu']] },
+      { name: 'symbol', label: 'Kod', type: 'text', required: true, hint: 'Örneğin: THYAO, VOO, IOO' },
+      { name: 'quantity', label: 'Adet / pay', type: 'number', required: true },
+      { name: 'price', label: 'Birim fiyat (TL, ABD hissesi için $)', type: 'number', required: true },
+      { name: 'date', label: 'Tarih', type: 'date', required: true },
+      { name: 'accountName', label: 'Hesaba yansıt', type: 'select', options: [['', 'Yansıtma'], ...data.state.accounts.map((a) => [a.name, a.name])], hint: 'Seçersen tutar bu hesaptan düşer veya eklenir. ABD işlemlerinde kullanılamaz.' },
+    ],
+    save: (v) => ({ type: 'add_trade', side: v.side, kind: v.kind, symbol: v.symbol, quantity: v.quantity, price: v.price, date: v.date, accountName: v.accountName }),
+  },
+  gold: {
+    title: 'Altın',
+    key: 'label',
+    defaults: () => ({ date: data.view.today, kind: 'gram' }),
+    fields: () => [
+      { name: 'kind', label: 'Tür', type: 'select', required: true, options: [['gram', 'Gram altın'], ['ons', 'Ons altın']] },
+      { name: 'quantity', label: 'Miktar (gram ya da ons)', type: 'number', required: true },
+      { name: 'price', label: 'Birim alım fiyatı', type: 'number', required: true, hint: 'Gram için TL, ons için dolar' },
+      { name: 'date', label: 'Alım tarihi', type: 'date', required: true },
+    ],
+    save: (v, record) => ({ type: 'set_gold', id: record?.id, kind: v.kind, quantity: v.quantity, price: v.price, date: v.date }),
+    remove: (v) => ({ type: 'remove_gold', id: v.id }),
+  },
   bucket: {
     title: 'Para piyasasından ayır',
     key: 'name',
@@ -459,8 +823,8 @@ function openEditor(kind, record = null) {
   const fields = config.fields();
   editing = { kind, config, record };
   $('editor-title').textContent = record ? `${config.title}: ${record[config.key]}` : config.title;
-  const needsAccount = kind === 'income' && fields[3].options.length === 0;
-  $('editor-error').textContent = needsAccount ? 'Gelir eklemeden önce yatacağı banka hesabını ekle.' : '';
+  const needsAccount = (kind === 'income' || kind === 'expense') && data.state.accounts.length === 0;
+  $('editor-error').textContent = needsAccount ? 'Önce bir banka hesabı ekle.' : '';
   $('editor-error').hidden = !needsAccount;
   $('editor-delete').hidden = !(record && config.remove);
   disarmDelete();
@@ -498,7 +862,7 @@ async function runEditor(operation) {
 
 $('editor-form').addEventListener('submit', (event) => {
   event.preventDefault();
-  runEditor(editing.config.save(readEditor()));
+  runEditor(editing.config.save(readEditor(), editing.record));
 });
 $('editor-cancel').addEventListener('click', () => $('editor').close());
 // Onay pencerenin içinde istenir: window.confirm her tarayıcıda açılmaz, açılmayınca da silme sessizce iptal olur.

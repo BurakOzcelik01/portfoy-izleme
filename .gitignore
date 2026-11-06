@@ -1,6 +1,8 @@
 # Kişisel finansal veriler ve API anahtarı asla depoya girmez
 data.json
 data.json.tmp
+data.*.json
+portfoy-yedek-*.json
 .env
 
 node_modules/

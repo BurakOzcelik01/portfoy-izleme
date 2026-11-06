@@ -27,8 +27,23 @@ düzenlenebilir.
 Asistan hiçbir şeyi kendiliğinden değiştirmez: önerisini listeler, "Uygula" dersen işlenir.
 Yüklediğin fotoğraflar ve mevcut kayıtların, yanıt üretilmesi için Anthropic'e gönderilir.
 
+## Sayfalar
+
+Sol üstteki menüden açılır: ana ekran, alım/satım, portföy geçmişi, ay sonu ve yedekleme.
+
 ## Nasıl çalışır
 
+- **Yedekleme:** Bütün kayıtlar tek bir JSON dosyası olarak iner ve geri yüklenebilir. Geri yüklemeden
+  önce mevcut kayıtlar `data.before-restore.json` olarak saklanır. Dosyada finansal bilgiler vardır.
+- **Portföy geçmişi:** Uygulama açıkken her gün için son net varlık kaydedilir. Fiyatı alınamayan bir
+  varlık varsa o an kayıt yapılmaz.
+- **Alım/satım:** Alışlar adet ve ortalama maliyeti, satışlar gerçekleşen kâr/zararı günceller. Maliyet
+  sıraya bağlı olduğu için yalnızca bir varlığın en son işlemi silinebilir.
+- **Kart ödemesi:** Borç ile birlikte seçilen hesap ya da para piyasası ayırması ve fonu da düşer.
+- **Ay sonu:** Banka toplamı, bu ay kalan gelir ve giderler ile kart borcunun para piyasasında
+  karşılanmayan kısmından tahmin yapılır. Sabit giderler günü gelince hesaptan kendiliğinden düşer.
+- **Altın:** Gram (TL) veya ons (dolar) olarak eklenir. Fiyat, Yahoo Finance'teki vadeli altın ve dolar
+  kurundan hesaplanır; banka ve kuyumcu fiyatından farklı olabilir.
 - **Gelirler:** Sunucu her veri okumasında vadesi gelen gelirleri hesaba ekler. Uygulama kapalıyken
   gelen tarihler, açıldığında tek tek işlenir ve aynı gelir iki kez yatmaz. Ayın 31'i gibi günler
   kısa aylarda ayın son gününe çekilir.
