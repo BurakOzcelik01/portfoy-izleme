@@ -16,6 +16,7 @@ import {
 const D = '2026-11-06';
 const portfolio = (...ops) => applyOperations(emptyState(), ops, D);
 const noPrices = { quotes: [], usdTry: null, goldOunceUsd: null };
+const at = (iso) => Date.parse(iso);
 
 test('gider vadesi gelince hesaptan düşer ve tekrar düşmez', () => {
   const state = portfolio(
@@ -225,18 +226,66 @@ test('günlük kâr/zarar hisse, ABD hissesi, fon ve altını kapsar; yüzde yat
   // THYAO 110 TL: dün 100, +10. VOO 21 $ × 10 TL = 210: dün 200, +10. Altın 110 $ × 10 = 1100: dün 1000, +100.
   const totals = computeTotals(state, {
     quotes: [
-      { symbol: 'THYAO', market: 'BIST', price: 10, changePercent: 10 },
-      { symbol: 'VOO', market: 'US', price: 21, changePercent: 5 },
+      { symbol: 'THYAO', market: 'BIST', price: 10, changePercent: 10, marketTime: at('2026-11-06T09:00:00Z') },
+      { symbol: 'VOO', market: 'US', price: 21, changePercent: 5, marketTime: at('2026-11-06T15:00:00Z') },
     ],
     usdTry: 10,
     goldOunceUsd: 110,
     goldChangePercent: 10,
-  });
+    goldMarketTime: at('2026-11-06T09:00:00Z'),
+  }, D);
   const fundGain = state.funds[0].units * 1;
   assert.equal(totals.dailyChange, Math.round((10 + 10 + 100 + fundGain) * 100) / 100);
   const previous = 110 + 210 + 1100 + state.funds[0].value - totals.dailyChange;
   // dailyChange kuruşa yuvarlıdır, yüzde yuvarlanmamış tutardan hesaplanır.
   assert.ok(Math.abs(totals.dailyPercent - (totals.dailyChange / previous) * 100) < 1e-3);
+});
+
+test('dünkü ABD seansı bugünkü değişime girmez, New York günü bugünse girer', () => {
+  const state = portfolio({ type: 'set_holding', symbol: 'VOO', market: 'US', quantity: 1 });
+  const market = (time) => ({
+    quotes: [{ symbol: 'VOO', market: 'US', price: 110, changePercent: 10, marketTime: at(time) }],
+    usdTry: 1,
+    goldOunceUsd: null,
+  });
+  // Perşembe kapanışı İstanbul'da Cuma 00:00'dır ama Perşembe seansıdır.
+  assert.equal(computeTotals(state, market('2026-11-05T21:00:00Z'), '2026-11-06').dailyChange, 0);
+  assert.equal(computeTotals(state, market('2026-11-06T15:00:00Z'), '2026-11-06').dailyChange, 10);
+});
+
+test('hafta sonu önceki günün hisse, fon ve altın değişimi bugün sayılmaz', () => {
+  const state = portfolio(
+    { type: 'set_holding', symbol: 'THYAO', quantity: 1 },
+    { type: 'set_gold', kind: 'gram', quantity: 1, price: 1 },
+    { type: 'set_fund', name: 'IOO', amount: 100 },
+  );
+  applyFundPrices(state, new Map([['IOO', [{ date: D, price: 11 }, { date: '2026-11-05', price: 10 }]]]));
+  const friday = at('2026-11-06T12:00:00Z');
+  const market = {
+    quotes: [{ symbol: 'THYAO', market: 'BIST', price: 10, changePercent: 5, marketTime: friday }],
+    usdTry: 1,
+    goldOunceUsd: 100,
+    goldChangePercent: 5,
+    goldMarketTime: friday,
+  };
+  assert.notEqual(computeTotals(state, market, D).dailyChange, 0);
+  assert.equal(computeTotals(state, market, '2026-11-07').dailyChange, 0);
+});
+
+test('fon maliyeti boş gönderilirse silinir, hiç gönderilmezse korunur', () => {
+  let state = portfolio({ type: 'set_fund', name: 'PPI', amount: 100, cost: 90 });
+  state = applyOperations(state, [{ type: 'set_fund', name: 'PPI', moneyMarket: true }], D);
+  assert.equal(state.funds[0].cost, 90);
+  state = applyOperations(state, [{ type: 'set_fund', name: 'PPI', cost: null }], D);
+  assert.equal(state.funds[0].cost, null);
+  assert.equal(state.funds[0].moneyMarket, true);
+  assert.equal(state.funds[0].value, 100);
+});
+
+test('fonun tüm dönem kârı bugünkü değişime girmez', () => {
+  const state = portfolio({ type: 'set_fund', name: 'IOO', amount: 1000, cost: 500 });
+  applyFundPrices(state, new Map([['IOO', [{ date: D, price: 10 }, { date: '2026-11-05', price: 10 }]]]));
+  assert.equal(computeTotals(state, noPrices, D).dailyChange, 0);
 });
 
 test('değişim verisi yoksa günlük kâr/zarar sıfırdır, yatırım yoksa yüzde verilmez', () => {

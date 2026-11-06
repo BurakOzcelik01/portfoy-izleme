@@ -55,6 +55,8 @@
 }
 
 * { box-sizing: border-box; }
+/* display kuralları hidden özelliğini ezmesin: gizlenen öğe gerçekten gizlensin. */
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -170,7 +172,6 @@ dialog.menu {
 }
 #menu-links a:hover { background: var(--surface-2); }
 #menu-links a[aria-current="page"] { background: var(--surface-2); }
-.page[hidden] { display: none; }
 .span-12 { grid-column: span 12; }
 .card-row { display: flex; align-items: center; gap: 8px; }
 .card-row .row { flex: 1; min-width: 0; }

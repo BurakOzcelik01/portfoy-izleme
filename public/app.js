@@ -96,7 +96,7 @@ function renderHero() {
   $('net-daily').textContent = totals.dailyPercent === null
     ? ''
     : `Bugün ${percent(totals.dailyPercent)} (${signedMoney(totals.dailyChange)})`;
-  $('net-daily').title = 'Hisse, fon ve altının son işlem günündeki değişimi. Yüzde bu yatırımların toplamına göredir.';
+  $('net-daily').title = 'Yalnızca seansı bugün olan hisse, fon ve altının değişimi. Yüzde bu yatırımların toplamına göredir.';
   $('net-note').textContent = totals.missing > 0
     ? `Fiyatı alınamayan ${totals.missing} varlık bu toplama dahil değil.`
     : '';
@@ -450,7 +450,7 @@ function renderHoldings(rows, { boxId, statusId, format, editorKind }) {
   const times = rows.map((r) => r.quote?.marketTime).filter(Boolean);
   const latest = times.length ? Math.max(...times) : null;
   const rate = format === dollars && usdTry !== null
-    ? ` Toplam ${money(total * usdTry)} (1 $ = ${money(usdTry)}).`
+    ? ` Toplam ${money(total * usdTry)} (1 $ = ${money(usdTry)}). Günlük sütunu son seansı gösterir; net varlıktaki "Bugün" rakamına seans bugün açılınca girer.`
     : '';
   $(statusId).textContent = quotesLoadedAt
     ? `Fiyatlar 30 saniyede bir yenilenir.${latest ? ` Son işlem saati: ${clock(latest)}.` : ''}${rate} Kaynak: Yahoo Finance, gecikmeli olabilir.`
@@ -459,21 +459,28 @@ function renderHoldings(rows, { boxId, statusId, format, editorKind }) {
 
 function renderFunds() {
   const { funds } = data.state;
+  const hasDaily = (f) => f.priceDate === data.view.today && f.units != null && f.price != null && f.prevPrice != null;
   $('funds').replaceChildren(...(funds.length ? funds.map((fund) => {
     const pnl = fund.cost == null ? null : fund.value - fund.cost;
+    const daily = hasDaily(fund) ? fund.units * (fund.price - fund.prevPrice) : null;
     return h('li', { draggable: 'true', 'data-sort-key': fund.id }, h('button', { type: 'button', class: 'row', onclick: () => openEditor('fund', fund) },
       h('span', {},
         h('span', { class: 'row-title' }, fund.name),
         h('span', { class: 'row-sub' }, `${fund.moneyMarket ? 'Para piyasası · ' : ''}${longDate(fund.updatedAt)} değeri`)),
       h('span', { class: 'num' },
         money(fund.value),
-        pnl === null ? null : h('span', { class: `pct ${changeClass(pnl)}` }, `${percent((pnl / fund.cost) * 100)} (${signedMoney(pnl)})`))));
+        daily === null ? null : h('span', { class: `pct ${changeClass(daily)}` }, `Bugün ${percent((fund.price / fund.prevPrice - 1) * 100)} (${signedMoney(daily)})`),
+        pnl === null ? null : h('span', { class: `pct ${changeClass(pnl)}` }, `Toplam ${percent((pnl / fund.cost) * 100)} (${signedMoney(pnl)})`))));
   }) : [emptyRow('Henüz fon yok.')]));
 
   const known = funds.filter((f) => f.cost != null);
   const totalCost = known.reduce((sum, f) => sum + f.cost, 0);
   const totalPnl = known.reduce((sum, f) => sum + f.value - f.cost, 0);
+  const moving = funds.filter(hasDaily);
+  const dailyTotal = moving.reduce((sum, f) => sum + f.units * (f.price - f.prevPrice), 0);
+  const dailyBase = moving.reduce((sum, f) => sum + f.units * f.prevPrice, 0);
   const parts = [`Toplam ${money(data.view.fundsTotal)}.`];
+  if (dailyBase > 0) parts.push(`Bugün ${percent((dailyTotal / dailyBase) * 100)} (${signedMoney(dailyTotal)}).`);
   if (totalCost > 0) {
     const scope = known.length < funds.length ? ', maliyeti bilinen fonlarda' : '';
     parts.push(`Toplam kâr/zarar ${percent((totalPnl / totalCost) * 100)} (${signedMoney(totalPnl)}${scope}).`);

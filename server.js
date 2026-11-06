@@ -122,8 +122,9 @@ async function handleApi(req, res, pathname) {
       await refreshFundsIfDue();
       const market = await getQuotes(state.holdings);
       const current = currentView();
-      const totals = computeTotals(state, market);
-      if (recordSnapshot(state, todayInIstanbul(), totals)) persist();
+      const today = todayInIstanbul();
+      const totals = computeTotals(state, market, today);
+      if (recordSnapshot(state, today, totals)) persist();
       return sendJson(res, 200, { ...market, ...current, totals, fundRefreshError });
     }
 
