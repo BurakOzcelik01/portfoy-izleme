@@ -337,6 +337,7 @@ const PAGES = {
   history: 'Portföy geçmişi',
   month: 'Ay sonu',
   backup: 'Yedekleme',
+  settings: 'Ayarlar',
 };
 
 const currentPage = () => {
@@ -642,6 +643,33 @@ function renderIncomes() {
       h('span', { class: 'num' }, money(s.amount))))) : [emptyRow('Henüz gelir yok.')]));
 }
 
+const SECTION_LABELS = { bist: 'BIST hisseleri', us: 'ABD hisseleri', funds: 'Yatırım fonları', gold: 'Altın' };
+
+/** Ana ekran bölümlerini gizler/gösterir ve ayarlar sayfasındaki anahtarları çizer. */
+function renderSettings() {
+  const hidden = data.state.hiddenSections ?? [];
+  document.querySelectorAll('[data-section]').forEach((section) => {
+    section.hidden = hidden.includes(section.dataset.section);
+  });
+  $('settings-sections').replaceChildren(...Object.entries(SECTION_LABELS).map(([key, label]) => {
+    const input = h('input', { type: 'checkbox', checked: !hidden.includes(key) });
+    input.addEventListener('change', async () => {
+      $('settings-error').hidden = true;
+      input.disabled = true;
+      try {
+        await submitOperations([{ type: 'set_section_visibility', section: key, visible: input.checked }]);
+      } catch (error) {
+        input.checked = !input.checked;
+        $('settings-error').textContent = error.message;
+        $('settings-error').hidden = false;
+      } finally {
+        input.disabled = false;
+      }
+    });
+    return h('li', {}, h('label', { class: 'row field-check' }, input, h('span', { class: 'row-title' }, label)));
+  }));
+}
+
 function renderNotes() {
   const { notes } = data.state;
   $('notes').replaceChildren(...(notes.length ? notes.map((note) =>
@@ -738,6 +766,7 @@ function render() {
   renderCards();
   renderIncomes();
   renderNotes();
+  renderSettings();
   renderActivity();
 }
 

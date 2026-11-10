@@ -77,6 +77,15 @@
       </div>
     </section>
 
+    <section id="page-settings" class="page" hidden>
+      <div class="panel">
+        <div class="panel-head"><h2>Ana ekranda görünen bölümler</h2></div>
+        <p class="muted">Kapattığın bölüm yalnızca ana ekrandan gizlenir. Kayıtların silinmez ve net varlığa girmeye devam eder; istediğin zaman geri açabilirsin.</p>
+        <ul class="rows" id="settings-sections"></ul>
+        <p class="form-error" id="settings-error" role="alert" hidden></p>
+      </div>
+    </section>
+
     <section id="page-home" class="page">
     <header class="hero">
       <div>
@@ -89,7 +98,7 @@
     </header>
 
     <div class="grid">
-      <section class="panel span-7" aria-labelledby="h-portfolio">
+      <section class="panel span-7" aria-labelledby="h-portfolio" data-section="bist">
         <div class="panel-head">
           <h2 id="h-portfolio">BIST hisseleri</h2>
           <button type="button" class="ghost" data-add="holding">+ Hisse ekle</button>
@@ -107,7 +116,7 @@
         <div id="money-market"></div>
       </section>
 
-      <section class="panel span-7" aria-labelledby="h-us">
+      <section class="panel span-7" aria-labelledby="h-us" data-section="us">
         <div class="panel-head">
           <h2 id="h-us">ABD hisseleri</h2>
           <button type="button" class="ghost" data-add="usHolding">+ Hisse ekle</button>
@@ -117,7 +126,7 @@
         <p class="muted small" id="us-status"></p>
       </section>
 
-      <section class="panel span-5" aria-labelledby="h-funds">
+      <section class="panel span-5" aria-labelledby="h-funds" data-section="funds">
         <div class="panel-head">
           <h2 id="h-funds">Yatırım fonları</h2>
           <button type="button" class="ghost" data-add="fund">+ Fon ekle</button>
@@ -127,7 +136,7 @@
         <p class="muted small" id="funds-status"></p>
       </section>
 
-      <section class="panel span-12" aria-labelledby="h-gold">
+      <section class="panel span-12" aria-labelledby="h-gold" data-section="gold">
         <div class="panel-head">
           <h2 id="h-gold">Altın <span class="head-note" id="gold-market"></span></h2>
           <button type="button" class="ghost" data-add="gold">+ Altın ekle</button>

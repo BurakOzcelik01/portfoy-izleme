@@ -360,6 +360,31 @@ test('uyuşmayan sıralama reddedilir ve liste değişmez', () => {
   assert.deepEqual(state.accounts.map((r) => r.id), [a, b]);
 });
 
+test('bölüm gizlenip gösterilir, veri silinmez ve net varlık değişmez', () => {
+  let state = portfolio(
+    { type: 'set_holding', symbol: 'THYAO', quantity: 2 },
+    { type: 'set_gold', kind: 'gram', quantity: 1, price: 1 },
+  );
+  const market = { quotes: [{ symbol: 'THYAO', market: 'BIST', price: 10 }], usdTry: 50, goldOunceUsd: 4000 };
+  const before = computeTotals(state, market, D).net;
+  state = applyOperations(state, [{ type: 'set_section_visibility', section: 'gold', visible: false }], D);
+  state = applyOperations(state, [{ type: 'set_section_visibility', section: 'bist', visible: false }], D);
+  state = applyOperations(state, [{ type: 'set_section_visibility', section: 'gold', visible: false }], D);
+  assert.deepEqual(state.hiddenSections, ['gold', 'bist']);
+  assert.equal(state.gold.length, 1);
+  assert.equal(state.holdings.length, 1);
+  assert.equal(computeTotals(state, market, D).net, before);
+  state = applyOperations(state, [{ type: 'set_section_visibility', section: 'gold', visible: true }], D);
+  assert.deepEqual(state.hiddenSections, ['bist']);
+});
+
+test('bilinmeyen bölüm ve geçersiz değer reddedilir', () => {
+  const state = portfolio();
+  assert.deepEqual(state.hiddenSections, []);
+  assert.throws(() => applyOperations(state, [{ type: 'set_section_visibility', section: 'accounts', visible: false }], D), /Bilinmeyen bölüm/);
+  assert.throws(() => applyOperations(state, [{ type: 'set_section_visibility', section: 'gold', visible: 'hayır' }], D), /açık ya da kapalı/);
+});
+
 test('eski veri dosyası yeni biçime taşınır, bozuk dosya reddedilir', () => {
   const state = normalizeState({
     accounts: [],

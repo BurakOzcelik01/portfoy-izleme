@@ -299,3 +299,6 @@ dialog::backdrop { background: rgb(0 0 0 / 0.4); }
   main { padding: 18px 12px 0; }
   .hide-narrow { display: none; }
 }
+
+/* Ayarlar sayfasında kutucuk ve bölüm adı yan yana dursun. */
+.row.field-check { justify-content: flex-start; cursor: pointer; }
