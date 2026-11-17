@@ -197,7 +197,7 @@ function renderTrades() {
     });
     return h('tr', { class: 'static' },
       h('td', {}, longDate(t.date)),
-      h('td', {}, h('span', { class: 'row-title' }, t.symbol), h('span', { class: 'row-sub' }, TRADE_KINDS[t.kind])),
+      h('td', {}, h('span', { class: 'row-title' }, t.symbol), h('span', { class: 'row-sub' }, TRADE_KINDS[t.kind], t.orderId ? ' · emirden' : '')),
       h('td', {}, t.side === 'buy' ? 'Alış' : 'Satış'),
       h('td', { class: 'num' }, number(t.quantity)),
       h('td', { class: 'num' }, format(t.price)),
@@ -211,6 +211,187 @@ function renderTrades() {
       h('th', { class: 'hide-narrow' }, 'Tutar'), h('th', {}, 'Kâr/Zarar'), h('th', {}, ''))),
     h('tbody', {}, rows))));
 }
+
+/* ---------- Emirler ---------- */
+
+const ORDER_STATUS = { open: 'Bekliyor', filled: 'Gerçekleşti', cancelled: 'İptal' };
+const ORDER_FILTERS = [['all', 'Tümü'], ['open', 'Bekleyen'], ['filled', 'Gerçekleşen'], ['cancelled', 'İptal']];
+let orderFilter = 'open';
+
+/** Seçili olanı aria-pressed ile belli eden düğme grubu. */
+function renderFilter(boxId, options, current, onPick) {
+  $(boxId).replaceChildren(...options.map(([key, label]) =>
+    h('button', { type: 'button', class: 'chip', 'aria-pressed': String(key === current), onclick: () => onPick(key) }, label)));
+}
+
+function showOrdersError(message) {
+  $('orders-error').textContent = message;
+  $('orders-error').hidden = !message;
+}
+
+async function orderAction(operation) {
+  showOrdersError('');
+  try {
+    await submitOperations([operation]);
+  } catch (error) {
+    showOrdersError(error.message);
+    renderOrders();
+  }
+}
+
+function renderOrders() {
+  const orders = data.state.orders ?? [];
+  const count = (status) => orders.filter((o) => o.status === status).length;
+  $('orders-summary').replaceChildren(...[['Bekleyen', count('open')], ['Gerçekleşen', count('filled')], ['İptal', count('cancelled')]]
+    .map(([label, value]) => h('div', {}, h('dt', {}, label), h('dd', {}, String(value)))));
+  renderFilter('orders-filter', ORDER_FILTERS.map(([key, label]) => [key, key === 'all' ? `${label} (${orders.length})` : label]), orderFilter, (key) => {
+    orderFilter = key;
+    renderOrders();
+  });
+
+  const visible = orders.filter((o) => orderFilter === 'all' || o.status === orderFilter);
+  if (visible.length === 0) {
+    const text = orders.length === 0
+      ? 'Henüz emir yok. Aracı kurumda verdiğin emri buraya gir; gerçekleşince tek dokunuşla portföye işlenir.'
+      : 'Bu durumda emir yok.';
+    $('orders').replaceChildren(emptyRow(text));
+    return;
+  }
+  $('orders').replaceChildren(...visible.map((order) => {
+    const format = order.kind === 'US' ? dollars : money;
+    const quote = order.kind === 'FUND' ? null : quotes.get(`${order.kind}:${order.symbol}`);
+    const account = data.state.accounts.find((a) => a.id === order.accountId);
+    const partial = order.filledQuantity > 0 && order.filledQuantity < order.quantity;
+    // Bekleyen emirde güncel fiyatın emir fiyatına uzaklığı: alışta fiyat düşmeli, satışta yükselmeli.
+    let distance = null;
+    if (order.status === 'open' && quote?.price != null) {
+      const gap = ((quote.price - order.price) / order.price) * 100;
+      distance = h('span', { class: 'row-sub' }, `Güncel ${format(quote.price)} · emre ${percent(gap)}`);
+    }
+    const subParts = [
+      `${number(order.quantity)} adet × ${format(order.price)} = ${format(order.quantity * order.price)}`,
+      longDate(order.date),
+    ];
+    if (account) subParts.push(account.name);
+    const actions = [];
+    if (order.status === 'open') {
+      actions.push(h('button', { type: 'button', class: 'send small-button', onclick: () => openEditor('fillOrder', {
+        ...order,
+        quantity: Math.round((order.quantity - order.filledQuantity) * 1e9) / 1e9,
+        date: data.view.today,
+      }) }, 'Gerçekleşti'));
+      actions.push(confirmButton(partial ? 'Kalanı iptal et' : 'İptal et', 'Eminim, iptal et', () => orderAction({ type: 'cancel_order', id: order.id })));
+    }
+    if (order.tradeIds.length === 0) {
+      actions.push(confirmButton('Sil', 'Eminim, sil', () => orderAction({ type: 'remove_order', id: order.id })));
+    }
+    return h('li', { class: 'order' },
+      h('div', { class: 'row' },
+        h('span', {},
+          h('span', { class: 'row-title' }, order.symbol, ' '),
+          h('span', { class: `side ${order.side}` }, order.side === 'buy' ? 'Alış' : 'Satış'),
+          h('span', { class: 'row-sub' }, `${TRADE_KINDS[order.kind]} · ${subParts.join(' · ')}`),
+          partial ? h('span', { class: 'row-sub' }, `${number(order.filledQuantity)} / ${number(order.quantity)} adet gerçekleşti`) : null,
+          order.note ? h('span', { class: 'row-sub' }, order.note) : null,
+          distance),
+        h('span', { class: `status ${order.status}` }, ORDER_STATUS[order.status])),
+      actions.length ? h('div', { class: 'order-actions' }, actions) : null);
+  }));
+}
+
+/* ---------- Isı haritası ---------- */
+
+let heatmapMarket = 'all';
+
+/**
+ * Kare oranlı ağaç haritası (squarified treemap): kutular olabildiğince kareye yakın olsun diye
+ * sıralı değerler satır satır yerleştirilir. Alanlar değerle orantılıdır.
+ */
+function squarify(items, x, y, width, height) {
+  const total = items.reduce((sum, item) => sum + item.weight, 0);
+  const scale = (width * height) / total;
+  const rest = items.map((item) => ({ item, area: item.weight * scale }));
+  const rects = [];
+  const worst = (row, side) => {
+    const sum = row.reduce((s, r) => s + r.area, 0);
+    const max = Math.max(...row.map((r) => r.area));
+    const min = Math.min(...row.map((r) => r.area));
+    return Math.max((side * side * max) / (sum * sum), (sum * sum) / (side * side * min));
+  };
+  while (rest.length) {
+    const side = Math.min(width, height);
+    let row = [rest.shift()];
+    while (rest.length && worst([...row, rest[0]], side) <= worst(row, side)) row.push(rest.shift());
+    const thickness = row.reduce((s, r) => s + r.area, 0) / side;
+    let offset = 0;
+    for (const r of row) {
+      const length = r.area / thickness;
+      rects.push(width >= height
+        ? { item: r.item, x, y: y + offset, w: thickness, h: length }
+        : { item: r.item, x: x + offset, y, w: length, h: thickness });
+      offset += length;
+    }
+    if (width >= height) { x += thickness; width -= thickness; } else { y += thickness; height -= thickness; }
+  }
+  return rects;
+}
+
+/** Değişim büyüdükçe renk koyulaşır; ±%3 ve üstü en koyu tondur. Beyaz yazı her tonda okunur. */
+function heatColor(change) {
+  if (change == null) return 'hsl(160 8% 38%)';
+  const t = Math.min(Math.abs(change) / 3, 1);
+  if (Math.abs(change) < 0.005) return 'hsl(160 8% 38%)';
+  return change > 0 ? `hsl(140 38% ${38 - 16 * t}%)` : `hsl(2 50% ${42 - 18 * t}%)`;
+}
+
+function renderHeatmap() {
+  const box = $('heatmap');
+  renderFilter('heatmap-filter', [['all', 'Tümü'], ['BIST', 'BIST'], ['US', 'ABD']], heatmapMarket, (key) => {
+    heatmapMarket = key;
+    renderHeatmap();
+  });
+  const rows = holdingRows().filter((r) => heatmapMarket === 'all' || r.market === heatmapMarket);
+  const priced = rows.filter((r) => r.valueTry > 0).sort((a, b) => b.valueTry - a.valueTry);
+  const width = box.clientWidth;
+  if (priced.length === 0 || width === 0) {
+    box.style.height = '';
+    box.replaceChildren(h('p', { class: 'empty' }, rows.length && !quotesLoadedAt ? 'Fiyatlar yükleniyor…' : 'Gösterilecek hisse yok.'));
+    $('heatmap-status').textContent = '';
+    return;
+  }
+  // Telefonda dikey, geniş ekranda yatay bir alan: kutular okunacak kadar büyük kalsın.
+  const height = Math.round(width < 600 ? Math.min(width * 1.35, 620) : Math.min(width * 0.55, 620));
+  box.style.height = `${height}px`;
+  const total = priced.reduce((sum, r) => sum + r.valueTry, 0);
+  const rects = squarify(priced.map((r) => ({ ...r, weight: r.valueTry })), 0, 0, width, height);
+  box.replaceChildren(...rects.map(({ item, x, y, w, h: tileHeight }) => {
+    const change = item.quote?.changePercent ?? null;
+    const share = (item.valueTry / total) * 100;
+    const small = Math.min(w, tileHeight);
+    const format = item.market === 'US' ? dollars : money;
+    const label = `${item.symbol}${item.quote?.name ? ` (${item.quote.name})` : ''}: günlük ${change == null ? 'bilinmiyor' : percent(change)}, portföyde %${share.toFixed(1)}, değer ${money(item.valueTry)}`;
+    return h('button', {
+      type: 'button',
+      class: 'tile',
+      style: `left:${x}px;top:${y}px;width:${w}px;height:${tileHeight}px;background:${heatColor(change)};font-size:${Math.max(11, Math.min(20, small / 5))}px`,
+      title: label,
+      'aria-label': label,
+      onclick: () => openEditor(item.market === 'US' ? 'usHolding' : 'holding', item),
+    },
+    small >= 34 ? h('span', { class: 'tile-symbol' }, item.symbol) : null,
+    small >= 90 && item.quote?.name ? h('span', { class: 'tile-name' }, item.quote.name) : null,
+    small >= 48 ? h('span', { class: 'tile-change' }, change == null ? '—' : percent(change)) : null,
+    small >= 110 ? h('span', { class: 'tile-name' }, `%${share.toFixed(1)} · ${format(item.value)}`) : null);
+  }));
+  const missing = rows.length - priced.length;
+  $('heatmap-status').textContent = `${priced.length} hisse, toplam ${money(total)}.${missing ? ` Fiyatı alınamayan ${missing} hisse haritada yok.` : ''} Kutuya dokununca hisse düzenleme penceresi açılır. Kaynak: Yahoo Finance, gecikmeli olabilir.`;
+}
+
+let heatmapResize = null;
+window.addEventListener('resize', () => {
+  clearTimeout(heatmapResize);
+  heatmapResize = setTimeout(() => { if (data && currentPage() === 'heatmap') renderHeatmap(); }, 150);
+});
 
 const svg = (tag, attrs = {}, ...children) => {
   const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
@@ -333,6 +514,8 @@ function renderMonth() {
 
 const PAGES = {
   home: 'Ana ekran',
+  orders: 'Emirler',
+  heatmap: 'Isı haritası',
   trades: 'Alım/satım',
   history: 'Portföy geçmişi',
   month: 'Ay sonu',
@@ -352,6 +535,8 @@ function showPage() {
   $('menu-links').replaceChildren(...Object.entries(PAGES).map(([key, label]) =>
     h('a', { href: `#/${key}`, 'aria-current': key === page ? 'page' : null, onclick: () => $('menu').close() }, label)));
   window.scrollTo(0, 0);
+  // Isı haritası kutunun genişliğine göre çizilir; gizliyken genişlik sıfırdır.
+  if (page === 'heatmap' && data) renderHeatmap();
 }
 
 window.addEventListener('hashchange', showPage);
@@ -756,6 +941,8 @@ function render() {
   renderHero();
   renderGold();
   renderTrades();
+  renderOrders();
+  if (currentPage() === 'heatmap') renderHeatmap();
   renderHistory();
   renderMonth();
   renderHoldings(rows.filter((r) => r.market === 'BIST'), { boxId: 'holdings', statusId: 'quote-status', format: money, editorKind: 'holding' });
@@ -921,6 +1108,32 @@ const EDITORS = {
       { name: 'accountName', label: 'Hesaba yansıt', type: 'select', options: [['', 'Yansıtma'], ...data.state.accounts.map((a) => [a.name, a.name])], hint: 'Seçersen tutar bu hesaptan düşer veya eklenir. ABD işlemlerinde kullanılamaz.' },
     ],
     save: (v) => ({ type: 'add_trade', side: v.side, kind: v.kind, symbol: v.symbol, quantity: v.quantity, price: v.price, date: v.date, accountName: v.accountName }),
+  },
+  order: {
+    title: 'Yeni emir',
+    defaults: () => ({ date: data.view.today, kind: 'BIST', side: 'buy' }),
+    fields: () => [
+      { name: 'side', label: 'Emir', type: 'select', required: true, options: [['buy', 'Alış'], ['sell', 'Satış']] },
+      { name: 'kind', label: 'Varlık', type: 'select', required: true, options: [['BIST', 'BIST hissesi'], ['US', 'ABD hissesi'], ['FUND', 'Yatırım fonu']] },
+      { name: 'symbol', label: 'Kod', type: 'text', required: true, hint: 'Örneğin: THYAO, AAPL, IOO' },
+      { name: 'quantity', label: 'Adet / pay', type: 'number', required: true },
+      { name: 'price', label: 'Emir fiyatı (TL, ABD hissesi için $)', type: 'number', required: true },
+      { name: 'date', label: 'Emir tarihi', type: 'date', required: true },
+      { name: 'accountName', label: 'Gerçekleşince hesaba yansıt', type: 'select', options: [['', 'Yansıtma'], ...data.state.accounts.map((a) => [a.name, a.name])], hint: 'Seçersen gerçekleşen tutar bu hesaptan düşer veya eklenir. ABD işlemlerinde kullanılamaz.' },
+      { name: 'note', label: 'Not (isteğe bağlı)', type: 'text', hint: 'Örneğin: aracı kurum, emir türü' },
+      { name: 'filled', label: 'Emir zaten gerçekleşti, hemen portföye işle', type: 'checkbox' },
+    ],
+    save: (v) => ({ type: 'add_order', side: v.side, kind: v.kind, symbol: v.symbol, quantity: v.quantity, price: v.price, date: v.date, accountName: v.accountName, note: v.note, filled: v.filled }),
+  },
+  fillOrder: {
+    title: 'Emir gerçekleşti',
+    key: 'symbol',
+    fields: () => [
+      { name: 'quantity', label: 'Gerçekleşen adet', type: 'number', required: true, hint: 'Kısmi gerçekleştiyse yalnızca gerçekleşen adedi yaz; kalanı bekler.' },
+      { name: 'price', label: 'Gerçekleşen fiyat', type: 'number', required: true },
+      { name: 'date', label: 'Tarih', type: 'date', required: true },
+    ],
+    save: (v, record) => ({ type: 'fill_order', id: record.id, quantity: v.quantity, price: v.price, date: v.date }),
   },
   gold: {
     title: 'Altın',

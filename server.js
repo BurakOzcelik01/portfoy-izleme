@@ -22,7 +22,18 @@ const STATIC_FILES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
+  '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
+  '/icon-192.png': ['icon-192.png', 'image/png'],
+  '/icon-512.png': ['icon-512.png', 'image/png'],
+  '/apple-touch-icon.png': ['apple-touch-icon.png', 'image/png'],
 };
+
+// Telefondan erişim için Tailscale gibi özel bir ağın adresi eklenebilir (README: Telefonda kullanma).
+// Sunucu yine yalnızca bu bilgisayarı dinler; liste yalnızca bu adlarla gelen isteklere izin verir.
+const ALLOWED_HOSTS = new Set([
+  'localhost', '127.0.0.1',
+  ...(process.env.ALLOWED_HOSTS ?? '').split(',').map((host) => host.trim().toLowerCase()).filter(Boolean),
+]);
 
 let state = normalizeState(loadState(DATA_FILE, () => sampleState(todayInIstanbul())));
 
@@ -47,6 +58,16 @@ async function refreshFundsIfDue() {
   }
 }
 
+/** Eldeki hisseler ve bekleyen emirlerdeki hisseler; emir sayfası güncel fiyatı gösterir. */
+function quotedSymbols() {
+  const list = state.holdings.map(({ symbol, market }) => ({ symbol, market }));
+  for (const order of state.orders) {
+    if (order.status !== 'open' || order.kind === 'FUND') continue;
+    if (!list.some((h) => h.symbol === order.symbol && h.market === order.kind)) list.push({ symbol: order.symbol, market: order.kind });
+  }
+  return list;
+}
+
 function persist() {
   saveState(DATA_FILE, state);
 }
@@ -60,7 +81,7 @@ function currentView() {
 }
 
 // Bu işlemler fon değerini değiştirir; pay adedi ve fiyat hemen yeniden kontrol edilsin.
-const FUND_CHANGING_OPERATIONS = new Set(['set_fund', 'pay_card', 'add_trade', 'remove_trade']);
+const FUND_CHANGING_OPERATIONS = new Set(['set_fund', 'pay_card', 'add_trade', 'remove_trade', 'add_order', 'fill_order']);
 
 function sendJson(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -72,9 +93,10 @@ class BadRequest extends Error {}
 /** Portföye yeni giren hisse kodunun gerçekten var olduğunu doğrular; var olan kayıtlar sorulmaz. */
 async function checkNewHoldings(operations) {
   for (const op of operations) {
+    // Emrin kodu gerçekleşmeden de doğru olmalı: bekleyen emrin fiyatı bu koddan izlenir.
     const isNewPosition = op.type === 'set_holding'
       ? op.quantity !== 0
-      : op.type === 'add_trade' && op.side === 'buy' && op.kind !== 'FUND';
+      : (op.type === 'add_trade' && op.side === 'buy' && op.kind !== 'FUND') || (op.type === 'add_order' && op.kind !== 'FUND');
     if (!isNewPosition) continue;
     let market;
     let symbol;
@@ -84,7 +106,8 @@ async function checkNewHoldings(operations) {
     } catch (error) {
       throw new BadRequest(error.message);
     }
-    if (state.holdings.some((h) => h.symbol === symbol && h.market === market)) continue;
+    const known = [...state.holdings, ...state.orders.map((o) => ({ symbol: o.symbol, market: o.kind }))];
+    if (known.some((h) => h.symbol === symbol && h.market === market)) continue;
     const place = market === 'US' ? "ABD'de" : "Borsa İstanbul'da";
     let exists;
     try {
@@ -120,7 +143,7 @@ async function handleApi(req, res, pathname) {
 
     case 'GET /api/quotes': {
       await refreshFundsIfDue();
-      const market = await getQuotes(state.holdings);
+      const market = await getQuotes(quotedSymbols());
       const current = currentView();
       const today = todayInIstanbul();
       const totals = computeTotals(state, market, today);
@@ -195,8 +218,8 @@ async function handleApi(req, res, pathname) {
 
 const server = createServer(async (req, res) => {
   // Başka bir sitenin tarayıcı üzerinden bu yerel sunucuya erişmesini engeller.
-  const host = (req.headers.host ?? '').split(':')[0];
-  if (host !== 'localhost' && host !== '127.0.0.1') {
+  const host = (req.headers.host ?? '').split(':')[0].toLowerCase();
+  if (!ALLOWED_HOSTS.has(host)) {
     res.writeHead(403);
     return res.end();
   }
