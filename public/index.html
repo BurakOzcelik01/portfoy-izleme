@@ -4,6 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Portföyüm</title>
+  <!-- Telefonda "Ana ekrana ekle" ile ayrı bir uygulama gibi açılır. -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#235347">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Portföyüm">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -34,6 +42,35 @@
         <p class="muted small" id="trades-summary"></p>
         <p class="form-error" id="trades-error" role="alert" hidden></p>
         <div id="trades"></div>
+      </div>
+    </section>
+
+    <section id="page-orders" class="page" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Emirler</h2>
+          <button type="button" class="ghost" data-add="order">+ Emir gir</button>
+        </div>
+        <p class="muted small">Bekleyen emir portföyü değiştirmez. "Gerçekleşti" dediğinde adet, ortalama maliyet ve seçtiğin hesap güncellenir; işlem Alım/satım sayfasına da düşer.</p>
+        <dl class="panel-summary order-summary" id="orders-summary"></dl>
+        <div class="filters" role="group" aria-label="Emir durumu" id="orders-filter"></div>
+        <p class="form-error" id="orders-error" role="alert" hidden></p>
+        <ul class="rows" id="orders"></ul>
+      </div>
+    </section>
+
+    <section id="page-heatmap" class="page" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Isı haritası</h2>
+          <div class="filters" role="group" aria-label="Piyasa" id="heatmap-filter"></div>
+        </div>
+        <p class="muted small">Kutunun büyüklüğü hissenin portföydeki ağırlığı (TL değeri), rengi bugünkü değişimidir.</p>
+        <div id="heatmap" class="heatmap"></div>
+        <div class="heatmap-legend" aria-hidden="true">
+          <span>−%3</span><span class="legend-bar"></span><span>+%3</span>
+        </div>
+        <p class="muted small" id="heatmap-status"></p>
       </div>
     </section>
 

@@ -401,3 +401,63 @@ test('eski veri dosyası yeni biçime taşınır, bozuk dosya reddedilir', () =>
     assert.throws(() => normalizeState(bad), /geçersiz/);
   }
 });
+
+test('bekleyen emir portföyü değiştirmez, gerçekleşince alım/satım gibi işlenir', () => {
+  let state = portfolio(
+    { type: 'set_account', name: 'Banka A', amount: 10000 },
+    { type: 'add_order', kind: 'BIST', side: 'buy', symbol: 'thyao', quantity: 10, price: 300, accountName: 'Banka A' },
+  );
+  const [order] = state.orders;
+  assert.equal(order.status, 'open');
+  assert.equal(state.holdings.length, 0);
+  assert.equal(state.accounts[0].balance, 10000);
+
+  // Kısmi gerçekleşme: 4 adet 298'den.
+  state = applyOperations(state, [{ type: 'fill_order', id: order.id, quantity: 4, price: 298 }], D);
+  assert.equal(state.orders[0].status, 'open');
+  assert.equal(state.orders[0].filledQuantity, 4);
+  assert.deepEqual(state.holdings[0], { symbol: 'THYAO', market: 'BIST', quantity: 4, avgCost: 298 });
+  assert.equal(state.accounts[0].balance, 10000 - 1192);
+  assert.equal(state.trades[0].orderId, order.id);
+
+  // Kalanı emir fiyatından.
+  state = applyOperations(state, [{ type: 'fill_order', id: order.id }], D);
+  assert.equal(state.orders[0].status, 'filled');
+  assert.equal(state.holdings[0].quantity, 10);
+  assert.equal(state.accounts[0].balance, 10000 - 1192 - 1800);
+  assert.throws(() => applyOperations(state, [{ type: 'fill_order', id: order.id }], D), /bekleyen emir/);
+  assert.throws(() => applyOperations(state, [{ type: 'remove_order', id: order.id }], D), /gerçekleşen işlemi/);
+
+  // Son işlem geri alınınca emir yeniden bekler, portföy geri döner.
+  state = applyOperations(state, [{ type: 'remove_trade', id: state.trades[0].id }], D);
+  assert.equal(state.orders[0].status, 'open');
+  assert.equal(state.orders[0].filledQuantity, 4);
+  assert.equal(state.holdings[0].quantity, 4);
+});
+
+test('emir kalan adetten fazla gerçekleşemez; iptal yalnızca kalanı kapatır', () => {
+  let state = portfolio({ type: 'add_order', kind: 'BIST', side: 'buy', symbol: 'ASELS', quantity: 5, price: 150 });
+  const id = state.orders[0].id;
+  assert.throws(() => applyOperations(state, [{ type: 'fill_order', id, quantity: 6 }], D), /kalan adedi 5/);
+  state = applyOperations(state, [{ type: 'fill_order', id, quantity: 2 }, { type: 'cancel_order', id }], D);
+  assert.equal(state.orders[0].status, 'cancelled');
+  assert.equal(state.holdings[0].quantity, 2);
+  assert.throws(() => applyOperations(state, [{ type: 'fill_order', id }], D), /bekleyen emir/);
+});
+
+test('gerçekleşti işaretli emir hemen işlenir; satış emri eldekinden fazlaysa hiçbir şey değişmez', () => {
+  let state = portfolio({ type: 'add_order', kind: 'BIST', side: 'buy', symbol: 'BIMAS', quantity: 3, price: 500, filled: true });
+  assert.equal(state.orders[0].status, 'filled');
+  assert.equal(state.holdings[0].quantity, 3);
+  state = applyOperations(state, [{ type: 'add_order', kind: 'BIST', side: 'sell', symbol: 'BIMAS', quantity: 5, price: 520 }], D);
+  assert.throws(() => applyOperations(state, [{ type: 'fill_order', id: state.orders[0].id }], D), /3 adet var/);
+  assert.equal(state.holdings[0].quantity, 3);
+  state = applyOperations(state, [{ type: 'remove_order', id: state.orders[0].id }], D);
+  assert.equal(state.orders.length, 1);
+  assert.throws(() => portfolio({ type: 'add_order', kind: 'US', side: 'buy', symbol: 'VOO', quantity: 1, price: 500, accountName: 'X' }), /dolar/);
+});
+
+test('eski yedek dosyasında emir listesi olmasa da açılır', () => {
+  const state = normalizeState({ accounts: [] });
+  assert.deepEqual(state.orders, []);
+});

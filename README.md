@@ -29,7 +29,42 @@ Yüklediğin fotoğraflar ve mevcut kayıtların, yanıt üretilmesi için Anthr
 
 ## Sayfalar
 
-Sol üstteki menüden açılır: ana ekran, alım/satım, portföy geçmişi, ay sonu ve yedekleme.
+Sol üstteki menüden açılır: ana ekran, emirler, ısı haritası, alım/satım, portföy geçmişi, ay sonu ve yedekleme.
+
+## Telefonda kullanma
+
+Veriler bu bilgisayardaki `data.json` dosyasında durur ve kimlik doğrulama yoktur. Bu yüzden uygulama
+internete ya da ev Wi-Fi'ına açılmaz; telefon bilgisayara yalnızca senin cihazlarının bulunduğu özel bir
+ağ üzerinden, [Tailscale](https://tailscale.com) ile bağlanır. Bilgisayar açık ve `npm start` çalışıyor olmalı.
+
+1. Tailscale'i bilgisayara ve telefona kur, ikisinde de aynı hesapla giriş yap.
+2. Bilgisayarda uygulamayı Tailscale ağına HTTPS ile aç (yalnızca senin cihazların görür, internete açılmaz):
+   ```bash
+   tailscale serve --bg 4173
+   ```
+   Komut `https://<bilgisayar-adı>.<ağ-adı>.ts.net` biçiminde bir adres yazar.
+3. Bu adresin alan adını `.env` dosyasına ekle ve uygulamayı yeniden başlat:
+   ```
+   ALLOWED_HOSTS=bilgisayar-adi.ag-adi.ts.net
+   ```
+4. Telefonda adresi aç. Ana ekrana eklersen ayrı bir uygulama gibi tam ekran açılır:
+   iPhone'da Safari → Paylaş → Ana Ekrana Ekle; Android'de Chrome → ⋮ → Ana ekrana ekle.
+
+Kapatmak için: `tailscale serve --https=443 off`.
+
+## Emirler
+
+Aracı kurumda verdiğin emirler buraya girilir; bekleyen emir portföyü değiştirmez, yanında güncel fiyat
+ve emir fiyatına uzaklığı görünür. "Gerçekleşti" dendiğinde emir, alım/satım işlemiyle aynı yoldan
+portföye işlenir: adet, ortalama maliyet ve seçilen hesap güncellenir, işlem Alım/satım sayfasına düşer.
+Kısmi gerçekleşmede yalnızca gerçekleşen adet girilir, kalan beklemeye devam eder; "Kalanı iptal et"
+gerçekleşen kısmı portföyde bırakır. Gerçekleşmiş bir işlem Alım/satım sayfasından geri alınırsa emir
+yeniden bekler. Tüm emirler durumlarına göre (bekleyen, gerçekleşen, iptal) tek listede süzülür.
+
+## Isı haritası
+
+Hisseler (BIST ve ABD) portföydeki TL ağırlıklarıyla kutulara bölünür; renk bugünkü değişimdir, ±%3 ve
+üstü en koyu tondur. Fiyatı alınamayan hisse haritada yer almaz ve altta sayısı yazar.
 
 ## Nasıl çalışır
 
