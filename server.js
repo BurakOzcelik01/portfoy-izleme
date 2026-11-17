@@ -101,7 +101,8 @@ async function checkNewHoldings(operations) {
     let market;
     let symbol;
     try {
-      market = normalizeMarket(op.type === 'add_trade' ? op.kind : op.market);
+      // İşlem ve emirlerde piyasa `kind` alanındadır; hisse kaydında `market`.
+      market = normalizeMarket(op.type === 'set_holding' ? op.market : op.kind);
       symbol = normalizeSymbol(op.symbol, market);
     } catch (error) {
       throw new BadRequest(error.message);
